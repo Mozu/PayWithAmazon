@@ -1,2 +1,4 @@
-# arc.js-amazonpay
-Amazon pay integration uisng Arc.js
+# amazonpay
+### version 0.1.0
+
+Mozu Pay By Amazon Application
