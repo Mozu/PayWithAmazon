@@ -18,7 +18,7 @@
   "dependencies": {
     "guid": "0.0.12",
     "moment": "^2.10.3",
-    "mozu-node-sdk": "^1.17.15154-hotfix4",
+    "mozu-node-sdk": "^1.18.15223-0",
     "needle": "^0.10.0",
     "underscore": "^1.8.3",
     "xml2js": "^0.4.9",
