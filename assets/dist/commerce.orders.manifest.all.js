@@ -169,41 +169,44 @@ function createNewPayment(paymentAction, payment) {
 }
 
 function confirmAndAuthorize(paymentAction, payment, apiContext,captureOnAuthorize, declineAuth) {
-  return amazonPay.confirmOrder(payment.externalTransactionId).then(function() {
-      return amazonPay.requestAuthorzation(payment.externalTransactionId, payment.amountRequested, 
-        apiContext.currencyCode, payment.id, captureOnAuthorize, declineAuth)
-      .then(function(authResult) {
-        console.log("Authorize result",authResult);
-        var doc = new xmlDoc.XmlDocument(authResult);
-        var state = doc.valueWithPath("AuthorizeResult.AuthorizationDetails.AuthorizationStatus.State");
-        var status = "Declined";
-        var awsTransactionId = doc.valueWithPath("AuthorizeResult.AuthorizationDetails.AmazonAuthorizationId");
-        var captureId = null;
-        if (state == "Open" || state == "Closed") status = "Authorized";
-        if (captureOnAuthorize) {
-          //status = "Captured";
-          captureId = doc.valueWithPath("AuthorizeResult.AuthorizationDetails.IdList.member");
-        }
+  return createNewPayment(paymentAction, payment).then(function(result) {
+      if (result.status == "Failed") return result; 
+      return amazonPay.confirmOrder(payment.externalTransactionId).then(function() {
+        return amazonPay.requestAuthorzation(payment.externalTransactionId, payment.amountRequested, 
+          apiContext.currencyCode, payment.id, captureOnAuthorize, declineAuth)
+        .then(function(authResult) {
+          console.log("Authorize result",authResult);
+          var doc = new xmlDoc.XmlDocument(authResult);
+          var state = doc.valueWithPath("AuthorizeResult.AuthorizationDetails.AuthorizationStatus.State");
+          var status = "Declined";
+          var awsTransactionId = doc.valueWithPath("AuthorizeResult.AuthorizationDetails.AmazonAuthorizationId");
+          var captureId = null;
+          if (state == "Open" || state == "Closed") status = "Authorized";
+          if (captureOnAuthorize) {
+            captureId = doc.valueWithPath("AuthorizeResult.AuthorizationDetails.IdList.member");
+          }
 
-        var response = {
-              awsTransactionId: awsTransactionId,
-              captureId: captureId,
-              responseCode: 200, 
-              responseText:  state, 
-              status: status,
-              amount: payment.amountRequested,
-              captureOnAuthorize: captureOnAuthorize
-            };
-        console.log("Repsonse", authResult);
-        return response;
-      }, function(err) {
-        console.log(err);
-        return "Declined";
-      });      
-  }, function(err) {
-      console.log("Amazon confirm order failed", err);
-      return "Failed";
-  });
+          var response = {
+                awsTransactionId: awsTransactionId,
+                captureId: captureId,
+                responseCode: 200, 
+                responseText:  state, 
+                status: status,
+                amount: payment.amountRequested,
+                captureOnAuthorize: captureOnAuthorize
+              };
+          console.log("Repsonse", response);
+          return response;
+        }, function(err) {
+          console.log(err);
+          return {status : "Declined", responseCode: err.code, responseText: err.message};
+        });      
+    }, function(err) {
+        console.log("Amazon confirm order failed", err);
+        return "Failed";
+    });
+});
+
 }
 
 function captureAmount(paymentAction, payment,declineCapture) {
@@ -268,7 +271,7 @@ function creditPayment(paymentAction, payment) {
       }
 
       orderDetails.amount = paymentAction.amount;
-      orderDetails.currencyCode = paymentAction.currencyCode;
+      orderDetails.currencyCode = payment.currencyCode;
       orderDetails.note = paymentAction.reason;
       orderDetails.id = getUniqueId();
 
