@@ -96,7 +96,7 @@ After the payment interaction has been processed, one of the following states ca
 - Authorized
 - Captured
 - Declined
-- Failed (set this state to the payment flow will be stopped)
+- Failed (set this state to terminate payment flow)
 - Voided
 - Credited
 - New
