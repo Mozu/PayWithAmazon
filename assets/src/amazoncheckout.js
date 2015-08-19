@@ -10,11 +10,13 @@ var orderClient = require("mozu-node-sdk/clients/commerce/order")();
 var fulfillmentInfoClient = require('mozu-node-sdk/clients/commerce/orders/fulfillmentInfo')();
 var paymentSettingsClient = require("mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings")();
 var generalSettingsClient = require('mozu-node-sdk/clients/commerce/settings/generalSettings')();
+var getAppInfo = require('mozu-action-helpers/get-app-info');
 paymentSettingsClient.context[constants.headers.USERCLAIMS] = null;
 generalSettingsClient.context[constants.headers.USERCLAIMS] = null;
 
 function createOrderFromCart(cartId) {
   return orderClient.createOrderFromCart({ cartId: ''+cartId+''  }).then(function(order) {
+    console.log("Order created from cart", order);
     console.log("Order fulfillmentInfo" ,order.fulfillmentInfo);
 
     if (!order.fulfillmentInfo || !order.fulfillmentInfo.data || !order.fulfillmentInfo.data.awsReferenceId) return order;
@@ -202,7 +204,7 @@ function confirmAndAuthorize(paymentAction, payment, apiContext,captureOnAuthori
         });      
     }, function(err) {
         console.log("Amazon confirm order failed", err);
-        return "Failed";
+        return {status : "Failed", responseCode: err.code, responseText: err.message};
     });
 });
 
@@ -270,7 +272,7 @@ function creditPayment(paymentAction, payment) {
       }
 
       orderDetails.amount = paymentAction.amount;
-      orderDetails.currencyCode = payment.currencyCode;
+      orderDetails.currencyCode = paymentAction.currencyCode;
       orderDetails.note = paymentAction.reason;
       orderDetails.id = getUniqueId();
 
@@ -368,8 +370,12 @@ module.exports = function(context, callback) {
   var self = this;
   self.ctx = context;
   self.cb = callback;
-  self.nameSpace = context.apiContext.appKey.split(".")[0];
+  var appInfo = getAppInfo(context);
+  self.nameSpace = appInfo.namespace;
 
+  // Validate if the checkout process is for amazon process.
+  // Convert cart to order
+  // redirect to checkout page
   self.validateAndProcess = function() {
     try {
       var params = parseUrlParams(self.ctx.request);
@@ -382,7 +388,10 @@ module.exports = function(context, callback) {
         return amazonPay.validateToken(params.access_token); 
       }).then(function(isTokenValid) {
         console.log("Is Amazon token valid", isTokenValid);
-        if (!isTokenValid && params.isAwsCheckout) self.cb("Could not validate Amazon auth token");
+        if (!isTokenValid && params.isAwsCheckout) {
+          self.cb(new Error("Could not validate Amazon auth token"));
+        }
+
 
         var cartId = params.cartId;
         if (isTokenValid && cartId) {
@@ -414,6 +423,8 @@ module.exports = function(context, callback) {
     }
   };
 
+  //Add view data to control theme flow
+  //Check if token expired before getting fulfillment info. if token expired redirect to cart page for re-authentication
   self.addViewData = function() {
     var params = parseUrlParams(self.ctx.request);
     self.ctx.response.viewData.payByAmazonId = paymentConstants.PAYMENTSETTINGID;
@@ -429,19 +440,19 @@ module.exports = function(context, callback) {
           console.log("Amazon token and expried, redirecting to cart");
           self.ctx.response.redirect('/cart');
           self.ctx.response.end();
-          self.cb();
         } else if (_.has(params, "view")) {
           console.log("Changing view name to amazonpay");
           self.ctx.response.viewName = params.view;
-
         }
         else
           self.ctx.response.viewData.awsCheckout = true;
+        self.cb();
       });
 
   };
 
-  self.addBillingInfo = function() {
+  //validate if payment type if PayByAmazon
+  /*self.addBillingInfo = function() {
     console.log(self.ctx.request.params);
     var req = self.ctx.request;
     var billingInfo = req.params.newBillingInfo || req.params.billingInfo;
@@ -456,8 +467,11 @@ module.exports = function(context, callback) {
       console.log(fulfillmentinfo);
       self.cb();
     }, self.cb);
-  };
+  };*/
 
+  // Get full shipping information from amazon. need a valid token to get full shipping details from amazon
+  // Aws Referenceid and token is passed in fulfillmentInfo.data object
+  // update request params with new fulfillmentinfo
   self.addFulfillmentInfo = function() {
     console.log(self.ctx.request.params);
 
@@ -496,6 +510,7 @@ module.exports = function(context, callback) {
     }, self.cb);
   };
 
+  //Process payment interactions
   self.processPayment = function() {
     var paymentAction = self.ctx.get.paymentAction();
     var payment = self.ctx.get.payment();    
@@ -587,6 +602,7 @@ module.exports = function(context, callback) {
   };
 
 
+  //Close the order in amazon once the order has been marked as completed in mozu
   self.closeOrder = function() {
     try {
       var mzOrder = self.ctx.get.order();

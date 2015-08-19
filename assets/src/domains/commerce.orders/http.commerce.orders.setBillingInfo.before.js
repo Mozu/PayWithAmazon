@@ -11,11 +11,5 @@
 var AmazonCheckout = require("../../amazoncheckout");
 
 module.exports = function(context, callback) {
-	try{
-		console.log("setBillingInfo.before action");
-		var amazonCheckout = new AmazonCheckout(context, callback);
-		amazonCheckout.addBillingInfo();
-	} catch(e) {
-		callback(e);
-	} 
+	callback();
 };

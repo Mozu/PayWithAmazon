@@ -14,7 +14,7 @@ var AmazonCheckout = require("../../amazoncheckout");
 
 module.exports = function(context, callback) {
   try {
-    if (context.request.url.indexOf("/checkout") > -1 || context.request.url.indexOf("/cart")) {
+    if (context.request.url.indexOf("/checkout") > -1 || context.request.url.indexOf("/cart") > -1) {
       var amazonCheckout = new AmazonCheckout(context, callback);
       amazonCheckout.addViewData();
     } 
