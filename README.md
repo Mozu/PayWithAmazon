@@ -76,7 +76,7 @@ The following settings are required for PayByAmazon to work (Additonal settings 
 - AWS Region
 - Order Processing
 
-## Setup
+## Theme
 
 Merge [Theme](https://github.com/Mozu/core-theme-preview/tree/amazonpay-checkout) changes required to enable Pay By Amazon checkout flow in storefront
 
