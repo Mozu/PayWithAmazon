@@ -1,7 +1,7 @@
 # Mozu Pay By Amazon using Arc.js
 ### version 0.1.0
 
-Add [Pay By Amazon](https://payments.amazon.com/home) feature to your Mozu store. All using the Arc.js framework.
+The [Amazon Payments](https://payments.amazon.com/home) integration uses the Arc.js framework to create custom actions to enable the use of the Pay with Amazon service on the Mozu platform. Follow the directions below to use the code in this repository to enable Amazon Payments on your Mozu site.
 
 ## Requirements
 
@@ -30,13 +30,13 @@ In order to work with Arc.js, you'll need to have:
    done.
    ```
 
-2. Login to the Mozu Developer Center and create a new app. Call it "AmamzonPay". Make a note of its Application Key.
+2. Login to the Mozu Developer Center and create a new app. Call it "AmazonPay". Make a note of its Application Key.
 
 3. Now you're prepared to generate your upload configuration! Have on hand:
     - The application key for the app you just created
     - Your Developer Center login
     - The Application Key and Shared Secret for your sync app
-   Got all those? OK, in your `AmazonPay` directory you cloned from Git, run this:
+   Got all those? OK, in your `AmazonPay` directory you cloned from Git, run:
    ```sh
    $ yo mozu-app --config
    ```
@@ -65,9 +65,9 @@ Now that you've uploaded the code to your AmazonPay app, it's ready to install i
 
 Now, view your sandbox! You'll find that in the "Settings" menu in the upper right, a item called "Payment & Checkout". Choose it.
 
-You should see a new option "PayByAmazon". click on check box to enable it.
+You should see a new option "PayByAmazon". Check the checkbox to enable it.
 
-The following settings are required for PayByAmazon to work (Additonal settings can be added by modifing src/paltform.applications/embedded.platform.applications.install.js). The values for these can be obtained from [Amazon Seller Central](https://sellercentral.amazon.com/)
+The following settings are required for PayByAmazon to work (Additonal settings can be added by modifying src/paltform.applications/embedded.platform.applications.install.js). The values for these can be obtained from [Amazon Seller Central](https://sellercentral.amazon.com/)
 - SellerId
 - Client Id
 - Application Id
@@ -79,6 +79,14 @@ The following settings are required for PayByAmazon to work (Additonal settings 
 ## Theme
 
 Merge [Theme](https://github.com/Mozu/core-theme-preview/tree/amazonpay-checkout) changes required to enable Pay By Amazon checkout flow in storefront
+
+To enable Pay with Amazon on your storefront, you must configure your Amazon Payments account information in the Payment Settings page in Mozu Admin. Once this information has been entered, the Pay with Amazon service is available, but in order for it to appear on your storefront for your shoppers your theme must be updated.
+
+To update your theme to support Pay with Amazon, review and apply the changes made in our sample implementation to your own theme. A comparison between the core theme and a sample implementation of a theme with Pay with Amazon enabled can be viewed [here](https://github.com/Mozu/core-theme-preview/compare/master...amazonpay-checkout).
+
+Note: You must be logged in to GitHub and authorized to view the core-theme-preview repository to view the differences between the core theme and our sample implementation.
+
+For more information on working with themes, including modifying, uploading, installing, and applying the theme to your site, see the [Theme Development documentation](http://developer.mozu.com/learn/theme-development/quickstart).
 
 
 ## Payment code action
