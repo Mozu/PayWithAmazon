@@ -1,7 +1,6 @@
 var url = require("url");
 var qs = require("querystring");
 var _ = require("underscore");
-var xmlDoc = require("xmldoc");
 var Guid = require('guid');
 var amazonPay = require("./amazonpaysdk")();
 var constants = require("mozu-node-sdk/constants");
@@ -24,14 +23,12 @@ function createOrderFromCart(cartId) {
     console.log("Order has AWS Data. validating AWS order");
     //already associated with an aws order...validate that it is not cancelled
     return amazonPay.getOrderDetails(order.fulfillmentInfo.data.awsReferenceId).then(function(awsOrder) {
-        console.log("AWS Order", awsOrder);
-        var doc = new xmlDoc.XmlDocument(awsOrder);
-        var state = doc.valueWithPath("GetOrderReferenceDetailsResult.OrderReferenceDetails.OrderReferenceStatus.State");
+        var orderDetails = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails;
+        console.log("AWS Order", orderDetails);
+        var state = orderDetails.OrderReferenceStatus.State;
         console.log("Aws Order status", state);
         if (state == "Canceled") {
           order.fulfillmentinfo = null;
-          //console.log(order);
-          //return orderClient.updateOrder({orderId: order.id, version: order.version},{body: order});
           return fulfillmentInfoClient.setFulFillmentInfo({orderId: order.id, version: order.version}, {body: {}}).then(function(result) {
              console.log("Updated order fulfillmentinfo", result);
               return order;
@@ -86,36 +83,41 @@ function configure(continueIfDisabled, nameSpace, cb) {
 
 
 function getFulfillmentInfo(awsOrder, data) {
-  var doc = new xmlDoc.XmlDocument(awsOrder);
+  console.log("Aws order", awsOrder);
 
-  console.log(doc.valueWithPath("GetOrderReferenceDetailsResult.OrderReferenceDetails.OrderReferenceStatus.State"));
-  
-  var destinationPath = "GetOrderReferenceDetailsResult.OrderReferenceDetails.Destination.PhysicalDestination";
-
-  var name = doc.valueWithPath(destinationPath+".Name"); 
+  var orderDetails = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails;
+  console.log("Order Details", orderDetails);
+  var destinationPath = orderDetails.Destination.PhysicalDestination;
+  console.log("Destination address", destinationPath);
+  try {
+  var name =  destinationPath.Name;//doc.valueWithPath(destinationPath+".Name"); 
   var nameSplit = name.split(" ");
-  var phone = doc.valueWithPath(destinationPath+".Phone");
+  var phone = destinationPath.Phone;
   console.log(nameSplit);
   return { "fulfillmentContact" : { 
             "firstName" : (nameSplit[0] ? nameSplit[0] : "N/A"), 
             "lastNameOrSurname" : (nameSplit[1] ? nameSplit[1] : "N/A"), 
-            "email" : doc.valueWithPath("GetOrderReferenceDetailsResult.OrderReferenceDetails.Buyer.Email"),
+            "email" : orderDetails.Buyer.Email,
             "phoneNumbers" : {
               "home" : (phone ? phone : "N/A")
             },
             "address" : {
-              "address1" : doc.valueWithPath(destinationPath+".AddressLine1"),
-              "address2" : doc.valueWithPath(destinationPath+".AddressLine2"),
-              "cityOrTown" : doc.valueWithPath(destinationPath+".City"),
-              "stateOrProvince": doc.valueWithPath(destinationPath+".StateOrRegion"),
-              "postalOrZipCode": doc.valueWithPath(destinationPath+".PostalCode"),
-              "countryCode": doc.valueWithPath(destinationPath+".CountryCode"),
+              "address1" : destinationPath.AddressLine1,
+              "address2" : destinationPath.AddressLine2,
+              "cityOrTown" : destinationPath.City,
+              "stateOrProvince": destinationPath.StateOrRegion,
+              "postalOrZipCode": destinationPath.PostalCode,
+              "countryCode": destinationPath.CountryCode,
               "addressType": "Residential",
               "isValidated": "true"
             }
           },
           "data" : data
     };
+  } catch(e) {
+    console.log(e);
+    new Error(e);
+  }
 }
 
 function parseUrlParams(request) {
@@ -176,15 +178,15 @@ function confirmAndAuthorize(paymentAction, payment, apiContext,captureOnAuthori
         return amazonPay.requestAuthorzation(payment.externalTransactionId, payment.amountRequested, 
           apiContext.currencyCode, payment.id, captureOnAuthorize, declineAuth)
         .then(function(authResult) {
-          console.log("Authorize result",authResult);
-          var doc = new xmlDoc.XmlDocument(authResult);
-          var state = doc.valueWithPath("AuthorizeResult.AuthorizationDetails.AuthorizationStatus.State");
+          var authDetails = authResult.AuthorizeResponse.AuthorizeResult.AuthorizationDetails;
+          console.log("Authorize result",authDetails);
+          var state = authDetails.AuthorizationStatus.State;
           var status = "Declined";
-          var awsTransactionId = doc.valueWithPath("AuthorizeResult.AuthorizationDetails.AmazonAuthorizationId");
+          var awsTransactionId = authDetails.AmazonAuthorizationId;
           var captureId = null;
           if (state == "Open" || state == "Closed") status = "Authorized";
           if (captureOnAuthorize) {
-            captureId = doc.valueWithPath("AuthorizeResult.AuthorizationDetails.IdList.member");
+            captureId = authDetails.IdList.member;
           }
 
           var response = {
@@ -219,6 +221,13 @@ function captureAmount(paymentAction, payment,declineCapture) {
      
       
     console.log("Order details", orderDetails);
+
+    if (paymentAction.manualGatewayInteraction) {
+        console.log("Manual capture...dont send to amazon");
+        return {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: "Captured",
+                awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId  };
+      }
+
     var interactions = payment.interactions;
 
     var paymentAuthorizationInteraction = getInteractionByStatus(interactions, "Authorized");
@@ -234,20 +243,25 @@ function captureAmount(paymentAction, payment,declineCapture) {
     return amazonPay.captureAmount(paymentAuthorizationInteraction.gatewayTransactionId, orderDetails,
                                     getUniqueId() ,declineCapture)
       .then(function(captureResult){
-        console.log("Capture Result", captureResult);
-        var doc = new xmlDoc.XmlDocument(captureResult);
-        var state = doc.valueWithPath("CaptureResult.CaptureDetails.CaptureStatus.State");
-        var captureId = doc.valueWithPath("CaptureResult.CaptureDetails.AmazonCaptureId");
+        try {
+          console.log("AWS Capture Result", captureResult);
+          var captureDetails = captureResult.CaptureResponse.CaptureResult.CaptureDetails;
+          var state = captureDetails.CaptureStatus.State;
+          var captureId = captureDetails.AmazonCaptureId;
 
-        var response = {
-          status : (state == "Completed" ? "Captured" : "Failed"),
-          awsTransactionId: captureId,
-          responseText: state,
-          responseCode: 200,
-          amount: orderDetails.captureAmount
-        };
+          var response = {
+            status : (state == "Completed" ? "Captured" : "Failed"),
+            awsTransactionId: captureId,
+            responseText: state,
+            responseCode: 200,
+            amount: orderDetails.captureAmount
+          };
 
-        return response;
+          return response;
+        } catch(e) {
+          console.log(e);
+        }
+
     }, function(err) {
       console.log("Capture Error", err);
       return {status : "Failed",
@@ -265,10 +279,10 @@ function creditPayment(paymentAction, payment) {
         return {status : "Failed", responseCode: "InvalidRequest", responseText: "Payment has not been captured to issue refund"};
       } 
 
-      if (paymentAction.ManualGatewayInteraction) {
+      if (paymentAction.manualGatewayInteraction) {
         console.log("Manual credit...dont send to amazon");
         return {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: "Credited",
-                awsTransactionId: paymentAction.manualGatewayInteraction.gatewayResponseCode  };
+                awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId  };
       }
 
       orderDetails.amount = paymentAction.amount;
@@ -280,10 +294,10 @@ function creditPayment(paymentAction, payment) {
       console.log("Refund details", orderDetails);     
       return amazonPay.refund(capturedInteraction.gatewayTransactionId, orderDetails).then(
        function(refundResult) {
-          console.log("AWS Refund result", refundResult);
-          var doc = new xmlDoc.XmlDocument(refundResult);
-          var state = doc.valueWithPath("RefundResult.RefundDetails.RefundStatus.State");
-          var refundId = doc.valueWithPath("RefundResult.RefundDetails.AmazonRefundId");
+          var refundDetails = refundResult.RefundResponse.RefundResult.RefundDetails;
+          console.log("AWS Refund result", refundDetails);
+          var state = refundDetails.RefundStatus.State;
+          var refundId = refundDetails.AmazonRefundId;
 
           var response = {
             status : ( state == "Pending" ? "CreditPending" : (state == "Completed" ? "Credited" : "Failed")),
@@ -305,10 +319,10 @@ function creditPayment(paymentAction, payment) {
 
 function voidPayment(paymentAction, payment) {
   var promise = new Promise(function(resolve, reject) {
-    if (paymentAction.ManualGatewayInteraction) {
+    if (paymentAction.manualGatewayInteraction) {
           console.log("Manual void...dont send to amazon");
           resolve({amount: paymentAction.amount,gatewayResponseCode:  "OK", status: "Voided",
-                  awsTransactionId: paymentAction.manualGatewayInteraction.gatewayResponseCode  });
+                  awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId  });
     }
 
     var capturedInteraction = getInteractionByStatus(payment.interactions,"Captured");
@@ -325,7 +339,7 @@ function voidPayment(paymentAction, payment) {
 
     return amazonPay.cancelOrder(payment.externalTransactionId).then(function(result) {
       console.log("Amazon cancel result", result);
-      resolve( {status: "Voided"});
+      resolve( {status: "Voided", amount: paymentAction.amount});
     }, function(err){
        console.log("Amazon cancel failed", err);
       response({status: "Failed"});
@@ -503,7 +517,6 @@ module.exports = function(context, callback) {
         }
     })
     .then(function(awsOrder) {
-      console.log("Aws order", awsOrder);
       self.ctx.request.params.fulfillmentInfo = getFulfillmentInfo(awsOrder, data);
       console.log("fulfillmentInfo from AWS", self.ctx.request.params.fulfillmentInfo );
       self.cb();
@@ -618,8 +631,7 @@ module.exports = function(context, callback) {
       configure(true, self.nameSpace, self.cb).then(function(result){
         return amazonPay.getOrderDetails(payment.externalTransactionId);
       }).then(function(awsOrder) {
-         var doc = new xmlDoc.XmlDocument(awsOrder);
-         var state = doc.valueWithPath("GetOrderReferenceDetailsResult.OrderReferenceDetails.OrderReferenceStatus.State");
+         var state = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails.OrderReferenceStatus.State;
          console.log("Aws Order status", state);
          if (state != "Open") return;
 

@@ -4,7 +4,6 @@ var _ 		= require("underscore");
 var needle 	= require('needle');
 var crypto 	= require("crypto");
 var moment 	= require("moment");
-var xmlDoc = require("xmldoc");
 
 var mwsServiceUrls = { "eu" : "mws-eu.amazonservices.com", "na" : "mws.amazonservices.com", "jp" : "mws.amazonservices.jp"  };
 var profileEndpointUrls = { "uk" : "amazon.co.uk", "us" : "amazon.com", "de" : "amazon.de", "jp" : "amazon.co.jp" };
@@ -50,12 +49,12 @@ var buildParamString = function(params, uriEncodeValues) {
 
 
 
-var parseErrorToJson = function(errorXml) {
-	var doc = new xmlDoc.XmlDocument(errorXml);
+var parseErrorToJson = function(error) {
+	console.log("AWS Error ",error);
 	return {
-		type: doc.valueWithPath("Error.Type"),
-		code: doc.valueWithPath("Error.Code"),
-		message: doc.valueWithPath("Error.Message")
+		type: error.ErrorResponse.Error.Type,
+		code: error.ErrorResponse.Error.Code,
+		message: error.ErrorResponse.Error.Message
 	};
 
 };
@@ -99,9 +98,8 @@ module.exports = function() {
 		var promise = new Promise(function(resolve, reject) {
 			needle.post("https://"+self.config.server+self.config.path, 
 			buildParamString(params, false),
-			{json: false, parse: false}, 
+			{json: false, parse: true}, 
 			function(err, response, body) {
-
 				if (response.statusCode != 200)
 					reject(parseErrorToJson(response.body));
 				else {

@@ -8,7 +8,6 @@ var ActionInstaller = require('mozu-action-helpers/installers/actions');
 //var paymentSettingsClient = require("mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings")();
 var tennatClient = require("mozu-node-sdk/clients/platform/tenant")();
 var constants = require('mozu-node-sdk/constants');
-var async = require("async");
 var paymentConstants = require("../../constants");
 var _ = require("underscore");
 

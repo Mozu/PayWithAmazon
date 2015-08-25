@@ -1,5 +1,5 @@
 module.exports = {
-	PAYMENTSETTINGID : "PayByAmazon",
+	PAYMENTSETTINGID : "PayWithAmazon",
 	ENVIRONMENT: "environment",
 	SELLERID: "sellerId",
 	CLIENTID: "clientId",
