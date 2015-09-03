@@ -114,9 +114,9 @@ module.exports = function() {
 	self.validateToken = function(access_token) {
 		var promise = new Promise(function(resolve, reject){
 			self.getProfile(access_token).then(function(data) {
-					var validToken = !(data.error && data.error == "invalid_token") && data.app_id == self.config.app_id;
-					resolve(validToken);
+					resolve(true);
 				}, function(err) {
+					console.log("Validate token error", err)
 					reject(err);
 				}
 			);
@@ -125,15 +125,13 @@ module.exports = function() {
 	};
 
 	self.getProfile = function(access_token) {
-		access_token = encodeURIComponent(access_token);
+		//access_token = encodeURIComponent(access_token);
 		var promise = new Promise(function(resolve, reject) {
-			needle.get("https://"+self.config.profileEnvt+"."+profileEndpointUrls[self.config.region]+"/auth/o2/tokeninfo?access_token="+access_token,
+			needle.get("https://"+self.config.profileEnvt+"."+profileEndpointUrls[self.config.region]+"/user/profile",{ headers: {'Authorization':'bearer '+access_token}},
 				function(err, response, body){
-					console.log("Get AWS Profile", body);
-					if (err !== null)
-						reject(err);
+					if (response.statusCode != 200)
+						reject(response.body);
 					else {
-						console.log("profile data", body);
 						resolve(body);
 					}
 				}

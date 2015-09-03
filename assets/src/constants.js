@@ -13,5 +13,14 @@ module.exports = {
 	BUTTONTYPE: "buttonType",
 	POPUP: "usepopup",
 	CAPTUREONSUBMIT: "AuthAndCaptureOnOrderPlacement",
-	CAPTUREONSHIPMENT: "AuthOnOrderPlacementAndCaptureOnOrderShipment"
+	CAPTUREONSHIPMENT: "AuthOnOrderPlacementAndCaptureOnOrderShipment",
+	FAILED: "Failed",
+	NEW: "New",
+	DECLINED: "Declined",
+	AUTHORIZED: "Authorized",
+	CAPTURED: "Captured",
+	CREDITED: "Credited",
+	CREDITPENDING: "CreditPending",
+	VOIDED: "Voided"
+
 };

@@ -163,17 +163,17 @@ function createNewPayment(paymentAction, payment) {
       return amazonPay.setOrderDetails(paymentAction.externalTransactionId, orderDetails).then(
         function(result) {
           console.log("Amazon Create new payment result", result);
-          return { status : "New", amount: paymentAction.amount};
+          return { status : paymentConstants.NEW, amount: paymentAction.amount};
         }, function(err) {
           console.log("Amazon Create new payment Error", err);
-          return { status : "Failed", responseText: err.message, responseCode: err.code};
+          return { status : paymentConstants.FAILED, responseText: err.message, responseCode: err.code};
         });
     });
 }
 
 function confirmAndAuthorize(paymentAction, payment, apiContext,captureOnAuthorize, declineAuth) {
   return createNewPayment(paymentAction, payment).then(function(result) {
-      if (result.status == "Failed") return result; 
+      if (result.status == paymentConstants.FAILED) return result; 
       return amazonPay.confirmOrder(payment.externalTransactionId).then(function() {
         return amazonPay.requestAuthorzation(payment.externalTransactionId, payment.amountRequested, 
           apiContext.currencyCode, payment.id, captureOnAuthorize, declineAuth)
@@ -181,10 +181,10 @@ function confirmAndAuthorize(paymentAction, payment, apiContext,captureOnAuthori
           var authDetails = authResult.AuthorizeResponse.AuthorizeResult.AuthorizationDetails;
           console.log("Authorize result",authDetails);
           var state = authDetails.AuthorizationStatus.State;
-          var status = "Declined";
+          var status = paymentConstants.DECLINED;
           var awsTransactionId = authDetails.AmazonAuthorizationId;
           var captureId = null;
-          if (state == "Open" || state == "Closed") status = "Authorized";
+          if (state == "Open" || state == "Closed") status = paymentConstants.AUTHORIZED;
           if (captureOnAuthorize) {
             captureId = authDetails.IdList.member;
           }
@@ -202,11 +202,11 @@ function confirmAndAuthorize(paymentAction, payment, apiContext,captureOnAuthori
           return response;
         }, function(err) {
           console.log(err);
-          return {status : "Declined", responseCode: err.code, responseText: err.message};
+          return {status : paymentConstants.DECLINED, responseCode: err.code, responseText: err.message};
         });      
     }, function(err) {
         console.log("Amazon confirm order failed", err);
-        return {status : "Failed", responseCode: err.code, responseText: err.message};
+        return {status : paymentConstants.FAILED, responseCode: err.code, responseText: err.message};
     });
 });
 
@@ -224,18 +224,18 @@ function captureAmount(paymentAction, payment,declineCapture) {
 
     if (paymentAction.manualGatewayInteraction) {
         console.log("Manual capture...dont send to amazon");
-        return {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: "Captured",
+        return {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.CAPTURED,
                 awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId  };
       }
 
     var interactions = payment.interactions;
 
-    var paymentAuthorizationInteraction = getInteractionByStatus(interactions, "Authorized");
+    var paymentAuthorizationInteraction = getInteractionByStatus(interactions, paymentConstants.AUTHORIZED);
 
     console.log("Authorized interaction",paymentAuthorizationInteraction );
     if (!paymentAuthorizationInteraction) {
       console.log("interactions", interactions);
-      return {status : "Failed",
+      return {status : paymentConstants.FAILED,
               responseText: "Amazon Authorization Id not found in payment interactions",
               responseCode: 500};
     }
@@ -250,7 +250,7 @@ function captureAmount(paymentAction, payment,declineCapture) {
           var captureId = captureDetails.AmazonCaptureId;
 
           var response = {
-            status : (state == "Completed" ? "Captured" : "Failed"),
+            status : (state == "Completed" ? paymentConstants.CAPTURED : paymentConstants.FAILED),
             awsTransactionId: captureId,
             responseText: state,
             responseCode: 200,
@@ -264,7 +264,7 @@ function captureAmount(paymentAction, payment,declineCapture) {
 
     }, function(err) {
       console.log("Capture Error", err);
-      return {status : "Failed",
+      return {status : paymentConstants.FAILED,
               responseText: err.message,
           responseCode: err.code};
     });
@@ -273,15 +273,15 @@ function captureAmount(paymentAction, payment,declineCapture) {
 
 function creditPayment(paymentAction, payment) {
   return getOrderDetails(payment.orderId).then(function(orderDetails) {
-      var capturedInteraction = getInteractionByStatus(payment.interactions,"Captured");
+      var capturedInteraction = getInteractionByStatus(payment.interactions,paymentConstants.CAPTURED);
       console.log("AWS Refund, previous capturedInteraction", capturedInteraction);
       if (!capturedInteraction) {
-        return {status : "Failed", responseCode: "InvalidRequest", responseText: "Payment has not been captured to issue refund"};
+        return {status : paymentConstants.FAILED, responseCode: "InvalidRequest", responseText: "Payment has not been captured to issue refund"};
       } 
 
       if (paymentAction.manualGatewayInteraction) {
         console.log("Manual credit...dont send to amazon");
-        return {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: "Credited",
+        return {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.CREDITED,
                 awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId  };
       }
 
@@ -300,17 +300,17 @@ function creditPayment(paymentAction, payment) {
           var refundId = refundDetails.AmazonRefundId;
 
           var response = {
-            status : ( state == "Pending" ? "CreditPending" : (state == "Completed" ? "Credited" : "Failed")),
+            status : ( state == "Pending" ? paymentConstants.CREDITPENDING : (state == "Completed" ? paymentConstants.CREDITED : paymentConstants.FAILED)),
             awsTransactionId: refundId,
             responseText: state,
             responseCode: 200,
-            amount: refund.amount
+            amount: paymentAction.amount
           };
           console.log("Refund response", response);
           return response;
       }, function(err) {
         console.log("Capture Error", err);
-        return {status : "Failed",
+        return {status : paymentConstants.FAILED,
                 responseText: err.message,
             responseCode: err.code};
       });
@@ -321,28 +321,29 @@ function voidPayment(paymentAction, payment) {
   var promise = new Promise(function(resolve, reject) {
     if (paymentAction.manualGatewayInteraction) {
           console.log("Manual void...dont send to amazon");
-          resolve({amount: paymentAction.amount,gatewayResponseCode:  "OK", status: "Voided",
+          resolve({amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.VOIDED,
                   awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId  });
     }
 
-    var capturedInteraction = getInteractionByStatus(payment.interactions,"Captured");
+    var capturedInteraction = getInteractionByStatus(payment.interactions,paymentConstants.CAPTURED);
     console.log("Void Payment - Captured interaction", capturedInteraction);
     if (capturedInteraction) {
-      resolve({status : "Failed", responseCode: "InvalidRequest", responseText: "Payment with captures cannot be voided. Please issue a refund"});
+      resolve({status : paymentConstants.FAILED, responseCode: "InvalidRequest", responseText: "Payment with captures cannot be voided. Please issue a refund"});
     } 
 
     
 
-    var authorizedInteraction = getInteractionByStatus(payment.interactions,"Authorized");
+    var authorizedInteraction = getInteractionByStatus(payment.interactions,paymentConstants.AUTHORIZED);
     if (!authorizedInteraction) 
-      resolve( {status: "Voided"});
+      resolve( {status: paymentConstants.VOIDED});
 
     return amazonPay.cancelOrder(payment.externalTransactionId).then(function(result) {
       console.log("Amazon cancel result", result);
-      resolve( {status: "Voided", amount: paymentAction.amount});
+      resolve( {status: paymentConstants.VOIDED, amount: paymentAction.amount});
     }, function(err){
        console.log("Amazon cancel failed", err);
-      response({status: "Failed"});
+        resolve({status: paymentConstants.FAILED,responseText: err.message,
+            responseCode: err.code});
     });
 
   });
@@ -350,20 +351,25 @@ function voidPayment(paymentAction, payment) {
 }
 
 
-function declinePayment(payment) {
+function declinePayment(paymentAction, payment) {
   var promise = new Promise(function(resolve, reject) {
-    var capturedInteraction = getInteractionByStatus(payment.interactions, "Captured");
+    if (paymentAction.manualGatewayInteraction) {
+          console.log("Manual decline...dont send to amazon");
+          resolve({amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.DECLINED,
+                  awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId  });
+    }
+    var capturedInteraction = getInteractionByStatus(payment.interactions, paymentConstants.CAPTURED);
     if (capturedInteraction) {
       console.log("Capture found for payment, cannot decline");
-      resolve({status: "Failed", responseCode: "InvalidRequest", responseText: "Payment with captures cannot be declined"});
+      resolve({status: paymentConstants.FAILED, responseCode: "InvalidRequest", responseText: "Payment with captures cannot be declined"});
     }
 
     amazonPay.cancelOrder(payment.externalTransactionId).then(function(result){
       console.log(result);
-      resolve({status:"Declined"});
+      resolve({status:paymentConstants.DECLINED});
     }, function(err) {
       console.log(err);
-      resolve({status:"Failed", responseText: err});
+      resolve({status:paymentConstants.FAILED, responseText: err.message, responseCode: err.code});
     });
   });
   return promise;
@@ -569,14 +575,14 @@ module.exports = function(context, callback) {
                 return creditPayment(paymentAction, payment);
             case "DeclinePayment":
                 console.log("Decline payment for ",payment.externalTransactionId);
-                return declinePayment(payment);
+                return declinePayment(paymentAction, payment);
             default:
-              return null;
+              return {status: paymentConstants.FAILED,responseText: "Not implemented", responseCode: "NOTIMPLEMENTED"};
           }
       }).then(function(paymentResult) {
         if (!paymentResult) return self.cb(); 
 
-        if (paymentResult.status == "New")
+        if (paymentResult.status == paymentConstants.NEW)
              self.ctx.exec.setPaymentAmountRequested(paymentAction.amount);
 
          var interaction  =  {status: paymentResult.status};
@@ -597,18 +603,23 @@ module.exports = function(context, callback) {
 
           if (paymentResult.captureOnAuthorize) {
             interaction.gatewayTransactionId = paymentResult.captureId;
-            interaction.status = "Captured";
+            interaction.status = paymentConstants.CAPTURED;
             self.ctx.exec.addPaymentInteraction(interaction);
           }
+
+          if (paymentResult.status == paymentConstants.CREDITPENDING)
+            self.ctx.exec.setPaymentAmountCredited(paymentResult.amount);
+
+          if (paymentResult.status == paymentConstants.CAPTURED)
+            self.ctx.exec.setPaymentAmountCollected(paymentResult.amount);
+
           self.cb();
       }, function(err) {
-        self.ctx.exec.addPaymentInteraction({ status: "Failed", 
+        self.ctx.exec.addPaymentInteraction({ status: paymentConstants.FAILED, 
                     gatewayResponseText: err
                   });
         self.cb(err);
       });
-      //self.cb();
-
     } catch(e) {
       self.cb(e);
     }
