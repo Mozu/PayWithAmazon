@@ -83,7 +83,7 @@ function configure(continueIfDisabled, nameSpace, cb) {
 }
 
 
-function getFulfillmentInfo(awsOrder, data) {
+function getFulfillmentInfo(awsOrder) {
   console.log("Aws order", awsOrder);
 
   var orderDetails = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails;
@@ -112,8 +112,8 @@ function getFulfillmentInfo(awsOrder, data) {
               "addressType": "Residential",
               "isValidated": "true"
             }
-          },
-          "data" : data
+          }/*,
+          "data" : data*/
     };
   } catch(e) {
     console.log(e);
@@ -509,6 +509,7 @@ module.exports = function(context, callback) {
     }
     console.log("Reading payment settings for "+self.nameSpace+"~"+paymentConstants.PAYMENTSETTINGID);
 
+
     configure(false, self.nameSpace, self.cb)
     .then(function(result) { 
         return amazonPay.validateToken(addressConsentToken); 
@@ -524,7 +525,7 @@ module.exports = function(context, callback) {
         }
     })
     .then(function(awsOrder) {
-      self.ctx.request.params.fulfillmentInfo = getFulfillmentInfo(awsOrder, data);
+      self.ctx.request.params.fulfillmentInfo = getFulfillmentInfo(awsOrder);
       console.log("fulfillmentInfo from AWS", self.ctx.request.params.fulfillmentInfo );
       self.cb();
     }, self.cb);
@@ -778,8 +779,8 @@ module.exports = function() {
 			self.getProfile(access_token).then(function(data) {
 					resolve(true);
 				}, function(err) {
-					console.log("Validate token error", err)
-					reject(err);
+					console.log("Validate token error", err);
+					resolve(false);
 				}
 			);
 		});

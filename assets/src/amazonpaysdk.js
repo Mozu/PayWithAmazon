@@ -116,8 +116,8 @@ module.exports = function() {
 			self.getProfile(access_token).then(function(data) {
 					resolve(true);
 				}, function(err) {
-					console.log("Validate token error", err)
-					reject(err);
+					console.log("Validate token error", err);
+					resolve(false);
 				}
 			);
 		});
