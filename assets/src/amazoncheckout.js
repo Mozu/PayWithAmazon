@@ -225,7 +225,7 @@ function captureAmount(paymentAction, payment,declineCapture) {
     if (paymentAction.manualGatewayInteraction) {
         console.log("Manual capture...dont send to amazon");
         return {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.CAPTURED,
-                awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId  };
+                awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId};
       }
 
     var interactions = payment.interactions;
@@ -282,7 +282,7 @@ function creditPayment(paymentAction, payment) {
       if (paymentAction.manualGatewayInteraction) {
         console.log("Manual credit...dont send to amazon");
         return {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.CREDITED,
-                awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId  };
+                awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId};
       }
 
       orderDetails.amount = paymentAction.amount;
@@ -322,7 +322,7 @@ function voidPayment(paymentAction, payment) {
     if (paymentAction.manualGatewayInteraction) {
           console.log("Manual void...dont send to amazon");
           resolve({amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.VOIDED,
-                  awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId  });
+                  awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId});
     }
 
     var capturedInteraction = getInteractionByStatus(payment.interactions,paymentConstants.CAPTURED);
@@ -356,7 +356,7 @@ function declinePayment(paymentAction, payment) {
     if (paymentAction.manualGatewayInteraction) {
           console.log("Manual decline...dont send to amazon");
           resolve({amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.DECLINED,
-                  awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId  });
+                  awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId});
     }
     var capturedInteraction = getInteractionByStatus(payment.interactions, paymentConstants.CAPTURED);
     if (capturedInteraction) {
@@ -581,40 +581,8 @@ module.exports = function(context, callback) {
               return {status: paymentConstants.FAILED,responseText: "Not implemented", responseCode: "NOTIMPLEMENTED"};
           }
       }).then(function(paymentResult) {
-        if (!paymentResult) return self.cb(); 
-
-        if (paymentResult.status == paymentConstants.NEW)
-             self.ctx.exec.setPaymentAmountRequested(paymentAction.amount);
-
-         var interaction  =  {status: paymentResult.status};
-         if (paymentResult.amount) 
-            interaction.amount = paymentResult.amount;
-
-          if (paymentResult.awsTransactionId)
-              interaction.gatewayTransactionId = paymentResult.awsTransactionId;
-
-          if (paymentResult.responseText)
-            interaction.gatewayResponseText= paymentResult.responseText;
-
-          if (paymentResult.responseCode)
-              interaction.gatewayResponseCode= paymentResult.responseCode;
-          console.log("Payment Action result", interaction);
-            
-          self.ctx.exec.addPaymentInteraction(interaction);
-
-          if (paymentResult.captureOnAuthorize) {
-            interaction.gatewayTransactionId = paymentResult.captureId;
-            interaction.status = paymentConstants.CAPTURED;
-            self.ctx.exec.addPaymentInteraction(interaction);
-          }
-
-          if (paymentResult.status == paymentConstants.CREDITPENDING)
-            self.ctx.exec.setPaymentAmountCredited(paymentResult.amount);
-
-          if (paymentResult.status == paymentConstants.CAPTURED)
-            self.ctx.exec.setPaymentAmountCollected(paymentResult.amount);
-
-          self.cb();
+        processPaymentResult(paymentResult, paymentAction);
+        self.cb();
       }, function(err) {
         self.ctx.exec.addPaymentInteraction({ status: paymentConstants.FAILED, 
                     gatewayResponseText: err
@@ -657,4 +625,73 @@ module.exports = function(context, callback) {
       self.cb(e);
     }
   };
+
+  function processPaymentResult(paymentResult, paymentAction) {
+    var interactionType = "";
+    var isManual = false;
+
+    if (paymentAction.manualGatewayInteraction)
+      isManual = true;
+
+    switch(paymentAction.actionName) {
+            case "VoidPayment":
+               interactionType = "Void";
+               break;
+            case "CreatePayment":
+            case "AuthorizePayment":
+              interactionType = "Authorization";
+              break;
+            case "CapturePayment":
+              interactionType = "Capture";
+              break;
+            case "CreditPayment":
+              interactionType = "Credit";
+              break;
+            case "DeclinePayment":
+              interactionType = "Decline";
+              break;
+            case "RollbackPayment":
+              interactionType = "Rollback";
+              break;
+            default:
+              interactionType = "";
+              break;
+          }
+
+    if (paymentResult.status == paymentConstants.NEW)
+      self.ctx.exec.setPaymentAmountRequested(paymentAction.amount);
+
+    var interaction  =  {status: paymentResult.status, interactionType: interactionType};
+    if (paymentResult.amount) 
+      interaction.amount = paymentResult.amount;
+
+    if (paymentResult.awsTransactionId)
+      interaction.gatewayTransactionId = paymentResult.awsTransactionId;
+
+    if (paymentResult.responseText)
+      interaction.gatewayResponseText= paymentResult.responseText;
+
+    if (paymentResult.responseCode)
+      interaction.gatewayResponseCode= paymentResult.responseCode;
+
+    interaction.isManual = isManual;
+    console.log("Payment Action result", interaction);
+
+    self.ctx.exec.addPaymentInteraction(interaction);
+
+
+
+    if (paymentResult.captureOnAuthorize) {
+      interaction.gatewayTransactionId = paymentResult.captureId;
+      interaction.status = paymentConstants.CAPTURED;
+      self.ctx.exec.addPaymentInteraction(interaction);
+    }
+
+    if (paymentResult.status == paymentConstants.CREDITPENDING)
+      self.ctx.exec.setPaymentAmountCredited(paymentResult.amount);
+
+    if (paymentResult.status == paymentConstants.CAPTURED)
+      self.ctx.exec.setPaymentAmountCollected(paymentResult.amount);
+ 
+  }
 };
