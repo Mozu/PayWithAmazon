@@ -156,14 +156,18 @@ function getOrderDetails(orderId) {
 }
 
 function createNewPayment(paymentAction, payment) {
+  var newStatus = { status : paymentConstants.NEW, amount: paymentAction.amount};
   return getOrderDetails(payment.orderId).then(function(orderDetails) {
+      if (paymentAction.amount === 0)
+        return newStatus;
       orderDetails.amount = paymentAction.amount;
       orderDetails.currencyCode=  paymentAction.currencyCode;
       console.log("Order Details", orderDetails);
+
       return amazonPay.setOrderDetails(paymentAction.externalTransactionId, orderDetails).then(
         function(result) {
           console.log("Amazon Create new payment result", result);
-          return { status : paymentConstants.NEW, amount: paymentAction.amount};
+          return newStatus;
         }, function(err) {
           console.log("Amazon Create new payment Error", err);
           return { status : paymentConstants.FAILED, responseText: err.message, responseCode: err.code};
