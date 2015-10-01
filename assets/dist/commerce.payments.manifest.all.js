@@ -17,6 +17,8 @@ generalSettingsClient.context[constants.headers.USERCLAIMS] = null;
 function createOrderFromCart(cartId) {
   return orderClient.createOrderFromCart({ cartId: ''+cartId+''  }).then(function(order) {
     console.log("Order created from cart", order);
+    return order;
+  }).then(function(order){
     console.log("Order fulfillmentInfo" ,order.fulfillmentInfo);
 
     if (!order.fulfillmentInfo || !order.fulfillmentInfo.data || !order.fulfillmentInfo.data.awsReferenceId) return order;
@@ -38,8 +40,8 @@ function createOrderFromCart(cartId) {
            console.log("AWS order is not canceled, returning order");
            return order;
         }
-    });
-  });      
+    });    
+  });
 }
 
 
@@ -83,7 +85,7 @@ function configure(continueIfDisabled, nameSpace, cb) {
 }
 
 
-function getFulfillmentInfo(awsOrder) {
+function getFulfillmentInfo(awsOrder,data) {
   console.log("Aws order", awsOrder);
 
   var orderDetails = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails;
@@ -112,8 +114,8 @@ function getFulfillmentInfo(awsOrder) {
               "addressType": "Residential",
               "isValidated": "true"
             }
-          }/*,
-          "data" : data*/
+          },
+          "data" : data
     };
   } catch(e) {
     console.log(e);
@@ -529,7 +531,7 @@ module.exports = function(context, callback) {
         }
     })
     .then(function(awsOrder) {
-      self.ctx.request.params.fulfillmentInfo = getFulfillmentInfo(awsOrder);
+      self.ctx.request.params.fulfillmentInfo = getFulfillmentInfo(awsOrder, data);
       console.log("fulfillmentInfo from AWS", self.ctx.request.params.fulfillmentInfo );
       self.cb();
     }, self.cb);
@@ -883,7 +885,7 @@ module.exports = function() {
 		params.TransactionTimeout = 0;
 
 		if (declineAuth)
-			params.SellerAuthorizationNote = {"SandboxSimulation": {"State":"Declined", "ReasonCode":"InvalidPaymentMethod", "PaymentMethodUpdateTimeInMins":1}};
+			params.SellerAuthorizationNote = '{"SandboxSimulation": {"State":"Declined", "ReasonCode":"InvalidPaymentMethod", "PaymentMethodUpdateTimeInMins":5}}';
 
 		console.log("Requesting AWS Authorization", params);
 		return executeRequest("Authorize", params);
@@ -903,7 +905,7 @@ module.exports = function() {
 		params['OrderReferenceAttributes.SellerOrderAttributes.StoreName']=orderDetails.websiteName;
 		params.TransactionTimeout = 0;
 		if (declineCapture)			
-			params.sellerCaptureNote = {"SandboxSimulation": {"State":"Declined", "ReasonCode":"AmazonRejected"}};
+			params.sellerCaptureNote = '{"SandboxSimulation": {"State":"Declined", "ReasonCode":"AmazonRejected"}}';
 
 		console.log("Requesting AWS Capture", params);
 		return executeRequest("Capture", params);
