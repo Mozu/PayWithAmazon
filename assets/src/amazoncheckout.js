@@ -418,15 +418,27 @@ module.exports = function(context, callback) {
           self.cb(new Error("Could not validate Amazon auth token"));
         }
 
-
         var cartId = params.cartId;
         if (isTokenValid && cartId) {
+
+          //validate user claims
+
+          var user = self.ctx.items.pageContext.user;
+
+          if ( !user.isAnonymous && !user.IsAuthenticated )
+          {
+              self.ctx.response.redirect('/user/login?returnUrl=' + encodeURIComponent(self.ctx.request.url));
+              return context.response.end();
+          }
+
+
+
           console.log("Converting cart to order", cartId);
           return createOrderFromCart(cartId);
         } else if (!isTokenValid) {
           console.log("Amazon token and expried, redirecting to cart");
           self.ctx.response.redirect('/cart');
-          self.ctx.response.end();
+          return self.ctx.response.end();
         } 
       }).then(function(order) {
         console.log("Order created from cart", order.id);
@@ -456,6 +468,7 @@ module.exports = function(context, callback) {
     self.ctx.response.viewData.payByAmazonId = paymentConstants.PAYMENTSETTINGID;
 
     if (!isAmazonCheckout(params)) return self.cb();
+    var user = self.ctx.items.pageContext.user;
 
 
     configure(false, self.nameSpace, self.cb)
