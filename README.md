@@ -78,13 +78,11 @@ The following settings are required for PayByAmazon to work (Additonal settings 
 
 ## Theme
 
-Merge [Theme](https://github.com/Mozu/core-theme-preview/tree/amazonpay-checkout) changes required to enable Pay By Amazon checkout flow in storefront
+Merge [Theme](https://github.com/Mozu/PayWithAmazon-Theme) changes required to enable Pay By Amazon checkout flow in storefront
 
 To enable Pay with Amazon on your storefront, you must configure your Amazon Payments account information in the Payment Settings page in Mozu Admin. Once this information has been entered, the Pay with Amazon service is available, but in order for it to appear on your storefront for your shoppers your theme must be updated.
 
-To update your theme to support Pay with Amazon, review and apply the changes made in our sample implementation to your own theme. A comparison between the core theme and a sample implementation of a theme with Pay with Amazon enabled can be viewed [here](https://github.com/Mozu/core-theme-preview/compare/master...amazonpay-checkout).
-
-Note: You must be logged in to GitHub and authorized to view the core-theme-preview repository to view the differences between the core theme and our sample implementation.
+To update your theme to support Pay with Amazon, review and apply the changes made in our sample implementation to your own theme. A comparison between the core theme and a sample implementation of a theme with Pay with Amazon enabled can be viewed [here](https://github.com/Mozu/PayWithAmazon-Theme).
 
 For more information on working with themes, including modifying, uploading, installing, and applying the theme to your site, see the [Theme Development documentation](http://developer.mozu.com/learn/theme-development/quickstart).
 
