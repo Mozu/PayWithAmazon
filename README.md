@@ -3,6 +3,8 @@
 
 The [Amazon Payments](https://payments.amazon.com/home) integration uses the Arc.js framework to create custom actions to enable the use of the Pay with Amazon service on the Mozu platform. Follow the directions below to use the code in this repository to enable Amazon Payments on your Mozu site.
 
+**Note:** The instructions in this readme only apply if you have Arc.js enabled and are integrating this application in-house. Contact your Mozu representative to enable Arc.js on your tenant. If you installed the Pay with Amazon Certified Code Action from Mozu, you do not need to build this app. You can go directly to the [theme widget](https://github.com/Mozu/PayWithAmazon-Theme) to merge Pay with Amazon with your Mozu theme.
+
 ## Requirements
 
 In order to work with Arc.js, you'll need to have:
