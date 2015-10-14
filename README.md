@@ -10,7 +10,6 @@ The [Amazon Payments](https://payments.amazon.com/home) integration uses the Arc
 In order to work with Arc.js, you'll need to have:
 
  - A Developer Account at [mozu.com](http://mozu.com/login)
- - A [Sync App](https://github.com/Mozu/generator-mozu-app/blob/master/docs/sync-app.md) created for your developer login
  - A Sandbox connected to that developer account, with code actions enabled
  - NodeJS v0.12
  - The following global NPM packages installed
@@ -37,8 +36,7 @@ In order to work with Arc.js, you'll need to have:
 3. Now you're prepared to generate your upload configuration! Have on hand:
     - The application key for the app you just created
     - Your Developer Center login
-    - The Application Key and Shared Secret for your sync app
-   Got all those? OK, in your `AmazonPay` directory you cloned from Git, run:
+   Got those? OK, in your `AmazonPay` directory you cloned from Git, run:
    ```sh
    $ yo mozu-app --config
    ```
