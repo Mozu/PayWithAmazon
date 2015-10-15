@@ -9,9 +9,13 @@
  */
 
 
-var AmazonCheckout = require("../../amazoncheckout");
+var AmazonCheckout = require("../../amazon/checkout");
 
-
+function setError(err, context, callback) {
+  console.log(err);
+  context.cache.request.set("amazonError", err);
+  callback();
+}
 
 module.exports = function(context, callback) {
   try {
@@ -22,7 +26,8 @@ module.exports = function(context, callback) {
     else
       callback();
   } catch(e) {
-    callback(e);
+    console.log(e);
+    setError(e);
   }
   
 };

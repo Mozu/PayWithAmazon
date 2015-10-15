@@ -9,18 +9,32 @@
  */
 
 
-var AmazonCheckout = require("../../amazoncheckout");
+var AmazonCheckout = require("../../amazon/checkout");
+var helper = require("../../amazon/helper");
 
+function addErrorToModel(context, error) {
+    console.log("Adding error to viewData", error);
+    context.response.viewData.model.messages =  [ 
+      {"message": "'"+error+"'"}
+    ];
+
+}
 
 module.exports = function(context, callback) {
-  try {
-    if (context.request.url.indexOf("/checkout") > -1 || context.request.url.indexOf("/cart") > -1) {
-      var amazonCheckout = new AmazonCheckout(context, callback);
-      amazonCheckout.addViewData();
-    } 
-    else
+
+  var amazonError = context.cache.request.get("amazonError");
+  if (amazonError) addErrorToModel(context, amazonError);
+  else {
+    try {
+      if ( helper.isCartPage(context) || helper.isCheckoutPage(context)) {
+        var amazonCheckout = new AmazonCheckout(context, callback);
+        amazonCheckout.addViewData();
+      } 
+      else
+        callback();
+    } catch(e) {
+      addErrorToModel(context, e);
       callback();
-  } catch(e) {
-    callback(e);
+    }
   }
 };

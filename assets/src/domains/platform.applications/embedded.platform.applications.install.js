@@ -8,7 +8,7 @@ var ActionInstaller = require('mozu-action-helpers/installers/actions');
 //var paymentSettingsClient = require("mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings")();
 var tennatClient = require("mozu-node-sdk/clients/platform/tenant")();
 var constants = require('mozu-node-sdk/constants');
-var paymentConstants = require("../../constants");
+var paymentConstants = require("../../amazon/constants");
 var _ = require("underscore");
 
 function AppInstall(context, callback) {
@@ -41,10 +41,10 @@ function AppInstall(context, callback) {
 			    	getPaymentActionFieldDef("AWS Access Key", paymentConstants.AWSACCESSKEYID, "TextBox", true.null),
 			    	getPaymentActionFieldDef("AWS Secret", paymentConstants.AWSSECRET, "TextBox", true,null),
 			    	getPaymentActionFieldDef("AWS Region", paymentConstants.REGION, "RadioButton", false,getRegions()),
-			    	getPaymentActionFieldDef("Order Processing", paymentConstants.ORDERPROCESSING, "RadioButton", true,getOrderProcessingVocabularyValues()),
+			    	getPaymentActionFieldDef("Order Processing", paymentConstants.ORDERPROCESSING, "RadioButton", true,getOrderProcessingVocabularyValues())/*,
 			    	getPaymentActionFieldDef("Button Color", paymentConstants.BUTTONCOLOR, "RadioButton", false,getButtonColorValues()),
 			    	getPaymentActionFieldDef("Button Type", paymentConstants.BUTTONTYPE, "RadioButton", false,getButtonTypeValues()),
-			    	getPaymentActionFieldDef("Use Popup Window", paymentConstants.POPUP, "RadioButton", false,getPopupValues())
+			    	getPaymentActionFieldDef("Use Popup Window", paymentConstants.POPUP, "RadioButton", false,getPopupValues())*/
 			    ]
 			};
 

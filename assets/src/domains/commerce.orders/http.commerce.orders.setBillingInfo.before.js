@@ -8,7 +8,7 @@
 
  */
 
-var AmazonCheckout = require("../../amazoncheckout");
+var AmazonCheckout = require("../../amazon/checkout");
 
 module.exports = function(context, callback) {
 	callback();

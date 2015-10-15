@@ -33,7 +33,6 @@ var sortParams = function(params) {
 
 var buildParamString = function(params, uriEncodeValues) {
 	var keys = _.keys(params).sort();
-
 	var paramStr = "";
 	_.each(keys, function(key) {  
 		if (paramStr !== "")
@@ -76,7 +75,7 @@ module.exports = function() {
 		//add timestamp
 		var utcTime = moment.utc();
 
-		params = _.extend(params, getBaseParams(action, self.config));
+		params = _.extendOwn(params, getBaseParams(action, self.config));
 		params.Timestamp = utcTime.format('YYYY-MM-DDTHH:mm:ss')+"Z";
 
 		params = sortParams(params);
@@ -116,7 +115,7 @@ module.exports = function() {
 			self.getProfile(access_token).then(function(data) {
 					resolve(true);
 				}, function(err) {
-					console.log("Validate token error", err);
+					console.error("Validate token error", err);
 					resolve(false);
 				}
 			);
@@ -198,8 +197,9 @@ module.exports = function() {
 		params['OrderReferenceAttributes.SellerOrderAttributes.SellerOrderId']=orderDetails.orderNumber;
 		params['OrderReferenceAttributes.SellerOrderAttributes.StoreName']=orderDetails.websiteName;
 		params.TransactionTimeout = 0;
+
 		if (declineCapture)			
-			params.sellerCaptureNote = '{"SandboxSimulation": {"State":"Declined", "ReasonCode":"AmazonRejected"}}';
+			params.SellerCaptureNote = '{"SandboxSimulation": {"State":"Declined", "ReasonCode":"AmazonRejected"}}';
 
 		console.log("Requesting AWS Capture", params);
 		return executeRequest("Capture", params);

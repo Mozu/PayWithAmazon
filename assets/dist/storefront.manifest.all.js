@@ -1,722 +1,4 @@
 (function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.index = f()}})(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-var url = require("url");
-var qs = require("querystring");
-var _ = require("underscore");
-var Guid = require('guid');
-var amazonPay = require("./amazonpaysdk")();
-var constants = require("mozu-node-sdk/constants");
-var paymentConstants = require("./constants");
-var orderClient = require("mozu-node-sdk/clients/commerce/order")();
-var fulfillmentInfoClient = require('mozu-node-sdk/clients/commerce/orders/fulfillmentInfo')();
-var paymentSettingsClient = require("mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings")();
-var generalSettingsClient = require('mozu-node-sdk/clients/commerce/settings/generalSettings')();
-var getAppInfo = require('mozu-action-helpers/get-app-info');
-paymentSettingsClient.context[constants.headers.USERCLAIMS] = null;
-generalSettingsClient.context[constants.headers.USERCLAIMS] = null;
-
-function createOrderFromCart(cartId) {
-  return orderClient.createOrderFromCart({ cartId: ''+cartId+''  }).then(function(order) {
-    console.log("Order created from cart", order);
-    return order;
-  }).then(function(order){
-    console.log("Order fulfillmentInfo" ,order.fulfillmentInfo);
-
-    if (!order.fulfillmentInfo || !order.fulfillmentInfo.data || !order.fulfillmentInfo.data.awsReferenceId) return order;
-
-    console.log("Order has AWS Data. validating AWS order");
-    //already associated with an aws order...validate that it is not cancelled
-    return amazonPay.getOrderDetails(order.fulfillmentInfo.data.awsReferenceId).then(function(awsOrder) {
-        var orderDetails = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails;
-        console.log("AWS Order", orderDetails);
-        var state = orderDetails.OrderReferenceStatus.State;
-        console.log("Aws Order status", state);
-        if (state == "Canceled") {
-          order.fulfillmentinfo = null;
-          return fulfillmentInfoClient.setFulFillmentInfo({orderId: order.id, version: order.version}, {body: {}}).then(function(result) {
-             console.log("Updated order fulfillmentinfo", result);
-              return order;
-          });
-        } else {
-           console.log("AWS order is not canceled, returning order");
-           return order;
-        }
-    });    
-  });
-}
-
-
-function configure(continueIfDisabled, nameSpace, cb) {
-   var promise = new Promise(function(resolve,reject) {
-      var paymentFQN = nameSpace+"~"+paymentConstants.PAYMENTSETTINGID;
-      console.log("Payment Namespace", paymentFQN);
-      paymentSettingsClient.getThirdPartyPaymentWorkflowWithValues({fullyQualifiedName: paymentFQN})
-      .then(function(paymentSetting) {
-        if (!continueIfDisabled && !paymentSetting.isEnabled) cb();
-
-        var environment = getValue(paymentSetting, paymentConstants.ENVIRONMENT);
-        var isSandbox = environment == "sandbox";
-        var region = getValue(paymentSetting, paymentConstants.REGION);
-        var awsSecret = getValue(paymentSetting, paymentConstants.AWSSECRET);
-        var awsAccessKeyId = getValue(paymentSetting, paymentConstants.AWSACCESSKEYID);
-        var sellerId = getValue(paymentSetting, paymentConstants.SELLERID);
-        var appId = getValue(paymentSetting, paymentConstants.APPID);
-        var orderProcessing = getValue(paymentSetting, paymentConstants.ORDERPROCESSING);
-        console.log("Order processing instrucions", orderProcessing);
-        var captureOnAuthorize = (orderProcessing == paymentConstants.CAPTUREONSUBMIT);
-
-        var config = {"isSandbox" : isSandbox, 
-                      "awsAccessKeyId" : awsAccessKeyId, 
-                          "awsSecret" : awsSecret,
-                          "sellerId" : sellerId,
-                          "region" : region,
-                          "app_id" : appId,
-                          "captureOnAuthorize": captureOnAuthorize };
-
-
-        console.log("Amazon pay config", config);
-        amazonPay.configure(config);
-        resolve({enabled: paymentSetting.isEnabled, captureOnAuthorize: captureOnAuthorize});
-      }, function(err) {
-        reject(err);
-      });
-  });
-
-  return promise;
-}
-
-
-function getFulfillmentInfo(awsOrder,data) {
-  console.log("Aws order", awsOrder);
-
-  var orderDetails = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails;
-  console.log("Order Details", orderDetails);
-  var destinationPath = orderDetails.Destination.PhysicalDestination;
-  console.log("Destination address", destinationPath);
-  try {
-  var name =  destinationPath.Name;//doc.valueWithPath(destinationPath+".Name"); 
-  var nameSplit = name.split(" ");
-  var phone = destinationPath.Phone;
-  console.log(nameSplit);
-  return { "fulfillmentContact" : { 
-            "firstName" : (nameSplit[0] ? nameSplit[0] : "N/A"), 
-            "lastNameOrSurname" : (nameSplit[1] ? nameSplit[1] : "N/A"), 
-            "email" : orderDetails.Buyer.Email,
-            "phoneNumbers" : {
-              "home" : (phone ? phone : "N/A")
-            },
-            "address" : {
-              "address1" : destinationPath.AddressLine1,
-              "address2" : destinationPath.AddressLine2,
-              "cityOrTown" : destinationPath.City,
-              "stateOrProvince": destinationPath.StateOrRegion,
-              "postalOrZipCode": destinationPath.PostalCode,
-              "countryCode": destinationPath.CountryCode,
-              "addressType": "Residential",
-              "isValidated": "true"
-            }
-          },
-          "data" : data
-    };
-  } catch(e) {
-    console.log(e);
-    new Error(e);
-  }
-}
-
-function parseUrlParams(request) {
-  var urlParseResult = url.parse(request.url);
-  console.log("parsedUrl", urlParseResult);
-  queryStringParams = qs.parse(urlParseResult.query);
-  return queryStringParams;
-}
-
-function isAmazonCheckout(params) {
-  var hasAmzParams = _.has(params, 'access_token') && _.has(params, "isAwsCheckout");
-  console.log("is Amazon checkout?", hasAmzParams);
-  return hasAmzParams;
-}
-
-
-function getValue(paymentSetting, key) {
-  var value = _.findWhere(paymentSetting.credentials, {"apiName" : key});
-
-    if (!value) {
-      console.log(key+" not found");
-      return;
-    }
-    //console.log("Key: "+key, value.value );
-    return value.value;
-}
-
-
-function getOrderDetails(orderId) {
-  return generalSettingsClient.getGeneralSettings().then(function(settings){
-    return orderClient.getOrder({orderId: orderId}).then(function(order) {
-      console.log("Site settings", settings);
-      return {orderNumber: order.orderNumber, websiteName: settings.websiteName};
-    });
-  });
-}
-
-function createNewPayment(paymentAction, payment) {
-  var newStatus = { status : paymentConstants.NEW, amount: paymentAction.amount};
-  return getOrderDetails(payment.orderId).then(function(orderDetails) {
-      if (paymentAction.amount === 0)
-        return newStatus;
-      orderDetails.amount = paymentAction.amount;
-      orderDetails.currencyCode=  paymentAction.currencyCode;
-      console.log("Order Details", orderDetails);
-
-      return amazonPay.setOrderDetails(paymentAction.externalTransactionId, orderDetails).then(
-        function(result) {
-          console.log("Amazon Create new payment result", result);
-          return newStatus;
-        }, function(err) {
-          console.log("Amazon Create new payment Error", err);
-          return { status : paymentConstants.FAILED, responseText: err.message, responseCode: err.code};
-        });
-    });
-}
-
-function confirmAndAuthorize(paymentAction, payment, apiContext,captureOnAuthorize, declineAuth) {
-  return createNewPayment(paymentAction, payment).then(function(result) {
-      if (result.status == paymentConstants.FAILED) return result; 
-      return amazonPay.confirmOrder(payment.externalTransactionId).then(function() {
-        return amazonPay.requestAuthorzation(payment.externalTransactionId, payment.amountRequested, 
-          apiContext.currencyCode, payment.id, captureOnAuthorize, declineAuth)
-        .then(function(authResult) {
-          var authDetails = authResult.AuthorizeResponse.AuthorizeResult.AuthorizationDetails;
-          console.log("Authorize result",authDetails);
-          var state = authDetails.AuthorizationStatus.State;
-          var status = paymentConstants.DECLINED;
-          var awsTransactionId = authDetails.AmazonAuthorizationId;
-          var captureId = null;
-          if (state == "Open" || state == "Closed") status = paymentConstants.AUTHORIZED;
-          if (captureOnAuthorize) {
-            captureId = authDetails.IdList.member;
-          }
-
-          var response = {
-                awsTransactionId: awsTransactionId,
-                captureId: captureId,
-                responseCode: 200, 
-                responseText:  state, 
-                status: status,
-                amount: payment.amountRequested,
-                captureOnAuthorize: captureOnAuthorize
-              };
-          console.log("Repsonse", response);
-          return response;
-        }, function(err) {
-          console.log(err);
-          return {status : paymentConstants.DECLINED, responseCode: err.code, responseText: err.message};
-        });      
-    }, function(err) {
-        console.log("Amazon confirm order failed", err);
-        return {status : paymentConstants.FAILED, responseCode: err.code, responseText: err.message};
-    });
-});
-
-}
-
-function captureAmount(paymentAction, payment,declineCapture) {
-  return getOrderDetails(payment.orderId).then(function(orderDetails) {
-      
-    orderDetails.requestedAmount = payment.requestedAmount;
-    orderDetails.captureAmount= paymentAction.amount;
-    orderDetails.currencyCode= paymentAction.currencyCode;
-     
-      
-    console.log("Order details", orderDetails);
-
-    if (paymentAction.manualGatewayInteraction) {
-        console.log("Manual capture...dont send to amazon");
-        return {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.CAPTURED,
-                awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId};
-      }
-
-    var interactions = payment.interactions;
-
-    var paymentAuthorizationInteraction = getInteractionByStatus(interactions, paymentConstants.AUTHORIZED);
-
-    console.log("Authorized interaction",paymentAuthorizationInteraction );
-    if (!paymentAuthorizationInteraction) {
-      console.log("interactions", interactions);
-      return {status : paymentConstants.FAILED,
-              responseText: "Amazon Authorization Id not found in payment interactions",
-              responseCode: 500};
-    }
-
-    return amazonPay.captureAmount(paymentAuthorizationInteraction.gatewayTransactionId, orderDetails,
-                                    getUniqueId() ,declineCapture)
-      .then(function(captureResult){
-        try {
-          console.log("AWS Capture Result", captureResult);
-          var captureDetails = captureResult.CaptureResponse.CaptureResult.CaptureDetails;
-          var state = captureDetails.CaptureStatus.State;
-          var captureId = captureDetails.AmazonCaptureId;
-
-          var response = {
-            status : (state == "Completed" ? paymentConstants.CAPTURED : paymentConstants.FAILED),
-            awsTransactionId: captureId,
-            responseText: state,
-            responseCode: 200,
-            amount: orderDetails.captureAmount
-          };
-
-          return response;
-        } catch(e) {
-          console.log(e);
-        }
-
-    }, function(err) {
-      console.log("Capture Error", err);
-      return {status : paymentConstants.FAILED,
-              responseText: err.message,
-          responseCode: err.code};
-    });
-  });
-}
-
-function creditPayment(paymentAction, payment) {
-  return getOrderDetails(payment.orderId).then(function(orderDetails) {
-      var capturedInteraction = getInteractionByStatus(payment.interactions,paymentConstants.CAPTURED);
-      console.log("AWS Refund, previous capturedInteraction", capturedInteraction);
-      if (!capturedInteraction) {
-        return {status : paymentConstants.FAILED, responseCode: "InvalidRequest", responseText: "Payment has not been captured to issue refund"};
-      } 
-
-      if (paymentAction.manualGatewayInteraction) {
-        console.log("Manual credit...dont send to amazon");
-        return {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.CREDITED,
-                awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId};
-      }
-
-      orderDetails.amount = paymentAction.amount;
-      orderDetails.currencyCode = paymentAction.currencyCode;
-      orderDetails.note = paymentAction.reason;
-      orderDetails.id = getUniqueId();
-
-      
-      console.log("Refund details", orderDetails);     
-      return amazonPay.refund(capturedInteraction.gatewayTransactionId, orderDetails).then(
-       function(refundResult) {
-          var refundDetails = refundResult.RefundResponse.RefundResult.RefundDetails;
-          console.log("AWS Refund result", refundDetails);
-          var state = refundDetails.RefundStatus.State;
-          var refundId = refundDetails.AmazonRefundId;
-
-          var response = {
-            status : ( state == "Pending" ? paymentConstants.CREDITPENDING : (state == "Completed" ? paymentConstants.CREDITED : paymentConstants.FAILED)),
-            awsTransactionId: refundId,
-            responseText: state,
-            responseCode: 200,
-            amount: paymentAction.amount
-          };
-          console.log("Refund response", response);
-          return response;
-      }, function(err) {
-        console.log("Capture Error", err);
-        return {status : paymentConstants.FAILED,
-                responseText: err.message,
-            responseCode: err.code};
-      });
-    });
-}
-
-function voidPayment(paymentAction, payment) {
-  var promise = new Promise(function(resolve, reject) {
-    if (paymentAction.manualGatewayInteraction) {
-          console.log("Manual void...dont send to amazon");
-          resolve({amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.VOIDED,
-                  awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId});
-    }
-
-    var capturedInteraction = getInteractionByStatus(payment.interactions,paymentConstants.CAPTURED);
-    console.log("Void Payment - Captured interaction", capturedInteraction);
-    if (capturedInteraction) {
-      resolve({status : paymentConstants.FAILED, responseCode: "InvalidRequest", responseText: "Payment with captures cannot be voided. Please issue a refund"});
-    } 
-
-    
-
-    var authorizedInteraction = getInteractionByStatus(payment.interactions,paymentConstants.AUTHORIZED);
-    if (!authorizedInteraction) 
-      resolve( {status: paymentConstants.VOIDED});
-
-    return amazonPay.cancelOrder(payment.externalTransactionId).then(function(result) {
-      console.log("Amazon cancel result", result);
-      resolve( {status: paymentConstants.VOIDED, amount: paymentAction.amount});
-    }, function(err){
-       console.log("Amazon cancel failed", err);
-        resolve({status: paymentConstants.FAILED,responseText: err.message,
-            responseCode: err.code});
-    });
-
-  });
-  return promise;
-}
-
-
-function declinePayment(paymentAction, payment) {
-  var promise = new Promise(function(resolve, reject) {
-    if (paymentAction.manualGatewayInteraction) {
-          console.log("Manual decline...dont send to amazon");
-          resolve({amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.DECLINED,
-                  awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId});
-    }
-    var capturedInteraction = getInteractionByStatus(payment.interactions, paymentConstants.CAPTURED);
-    if (capturedInteraction) {
-      console.log("Capture found for payment, cannot decline");
-      resolve({status: paymentConstants.FAILED, responseCode: "InvalidRequest", responseText: "Payment with captures cannot be declined"});
-    }
-
-    amazonPay.cancelOrder(payment.externalTransactionId).then(function(result){
-      console.log(result);
-      resolve({status:paymentConstants.DECLINED});
-    }, function(err) {
-      console.log(err);
-      resolve({status:paymentConstants.FAILED, responseText: err.message, responseCode: err.code});
-    });
-  });
-  return promise;
-}
-
-function getInteractionByStatus(interactions, status) {
-  return _.find(interactions, function(interaction){
-      return interaction.status == status;
-  } );
-}
-
-function getUniqueId() {
-  var guid = Guid.create();
-  return guid.value.replace(/\-/g, "");
-}
-
-module.exports = function(context, callback) {
-  var self = this;
-  self.ctx = context;
-  self.cb = callback;
-  var appInfo = getAppInfo(context);
-  self.nameSpace = appInfo.namespace;
-
-  // Validate if the checkout process is for amazon process.
-  // Convert cart to order
-  // redirect to checkout page
-  self.validateAndProcess = function() {
-    try {
-      var params = parseUrlParams(self.ctx.request);
-
-      if (!isAmazonCheckout(params)) return self.cb();
-      console.log(self.ctx.apiContext);
-     
-      configure(false, self.nameSpace, self.cb)
-      .then(function(result) { 
-        return amazonPay.validateToken(params.access_token); 
-      }).then(function(isTokenValid) {
-        console.log("Is Amazon token valid", isTokenValid);
-        if (!isTokenValid && params.isAwsCheckout) {
-          self.cb(new Error("Could not validate Amazon auth token"));
-        }
-
-        var cartId = params.cartId;
-        if (isTokenValid && cartId) {
-
-          //validate user claims
-
-          var user = self.ctx.items.pageContext.user;
-
-          if ( !user.isAnonymous && !user.IsAuthenticated )
-          {
-              self.ctx.response.redirect('/user/login?returnUrl=' + encodeURIComponent(self.ctx.request.url));
-              return context.response.end();
-          }
-
-
-
-          console.log("Converting cart to order", cartId);
-          return createOrderFromCart(cartId);
-        } else if (!isTokenValid) {
-          console.log("Amazon token and expried, redirecting to cart");
-          self.ctx.response.redirect('/cart');
-          return self.ctx.response.end();
-        } 
-      }).then(function(order) {
-        console.log("Order created from cart", order.id);
-        
-           delete params.cartId;
-          var queryString = "";
-          Object.keys(params).forEach(function(key){
-              if (queryString !== "")
-                queryString += "&";
-              queryString += key +"=" + params[key];
-          });
-        
-        self.ctx.response.redirect('/checkout/'+order.id+"?"+queryString);
-        self.ctx.response.end();
-      })
-      .then(self.cb, self.cb);      
-    }
-    catch (e) {
-      self.cb(e);
-    }
-  };
-
-  //Add view data to control theme flow
-  //Check if token expired before getting fulfillment info. if token expired redirect to cart page for re-authentication
-  self.addViewData = function() {
-    var params = parseUrlParams(self.ctx.request);
-    self.ctx.response.viewData.payByAmazonId = paymentConstants.PAYMENTSETTINGID;
-
-    if (!isAmazonCheckout(params)) return self.cb();
-    var user = self.ctx.items.pageContext.user;
-
-
-    configure(false, self.nameSpace, self.cb)
-      .then(function(result) { 
-        return amazonPay.validateToken(params.access_token); 
-      }).then(function(isTokenValid) {
-        if (!isTokenValid) {
-          console.log("Amazon token and expried, redirecting to cart");
-          self.ctx.response.redirect('/cart');
-          self.ctx.response.end();
-        } else if (_.has(params, "view")) {
-          console.log("Changing view name to amazonpay");
-          self.ctx.response.viewName = params.view;
-        }
-        else
-          self.ctx.response.viewData.awsCheckout = true;
-        self.cb();
-      });
-
-  };
-
-  //validate if payment type if PayByAmazon
-  /*self.addBillingInfo = function() {
-    console.log(self.ctx.request.params);
-    var req = self.ctx.request;
-    var billingInfo = req.params.newBillingInfo || req.params.billingInfo;
-    if (billingInfo.paymentType !== paymentConstants.PAYMENTSETTINGID && billingInfo.paymentWorkflow !== paymentConstants.PAYMENTSETTINGID)
-      self.cb();
-
-    configure(false, self.nameSpace, self.cb)
-    .then(function(result) {
-      return fulfillmentInfoClient.getFulfillmentInfo({orderId: req.orderId});
-    })
-    .then(function(fulfillmentinfo){
-      console.log(fulfillmentinfo);
-      self.cb();
-    }, self.cb);
-  };*/
-
-  // Get full shipping information from amazon. need a valid token to get full shipping details from amazon
-  // Aws Referenceid and token is passed in fulfillmentInfo.data object
-  // update request params with new fulfillmentinfo
-  self.addFulfillmentInfo = function() {
-    console.log(self.ctx.request.params);
-
-    var fulfillmentInfo = self.ctx.request.params.fulfillmentInfo;
-    var data = fulfillmentInfo.data;
-    if (!data) return self.cb();
-
-    var awsReferenceId = data.awsReferenceId;
-    var addressConsentToken = data.addressAuthorizationToken;
-
-    if (!awsReferenceId && !addressConsentToken) { 
-      console.log("not an amazon order...");
-      return self.cb(); 
-    }
-    console.log("Reading payment settings for "+self.nameSpace+"~"+paymentConstants.PAYMENTSETTINGID);
-
-
-    configure(false, self.nameSpace, self.cb)
-    .then(function(result) { 
-        return amazonPay.validateToken(addressConsentToken); 
-    })
-    .then(function(isTokenValid){
-        if (!isTokenValid) self.cb();
-        
-        if (isTokenValid) {
-          console.log("Pay by Amazon token is valid...setting fulfilmment info");
-          return amazonPay.getOrderDetails(awsReferenceId, addressConsentToken);
-        } else {
-          return self.cb("Amazon session expired. Please re-login from cart page to continue checkout");
-        }
-    })
-    .then(function(awsOrder) {
-      self.ctx.request.params.fulfillmentInfo = getFulfillmentInfo(awsOrder, data);
-      console.log("fulfillmentInfo from AWS", self.ctx.request.params.fulfillmentInfo );
-      self.cb();
-    }, self.cb);
-  };
-
-  //Process payment interactions
-  self.processPayment = function() {
-    var paymentAction = self.ctx.get.paymentAction();
-    var payment = self.ctx.get.payment();    
-
-    console.log("Payment Action", paymentAction);
-    console.log("Payment", payment);
-    console.log("apiContext", self.ctx.apiContext);
-    if (payment.paymentType !== paymentConstants.PAYMENTSETTINGID) return self.cb();
-    var continueIfDisabled = paymentAction.actionName != "CreatePayment" && paymentAction.actionName != "AuthorizePayment";
-
-    var declineAuth = false; //this is for siumulating auth failure
-    var declineCapture = false; //this is for siumulating capture failure
-    if (self.ctx.configuration && self.ctx.configuration.payment)
-      declineAuth = self.ctx.configuration.payment.declineAuth === true;
-
-    if (self.ctx.configuration && self.ctx.configuration.payment)
-      declineCapture =  self.ctx.configuration.payment.declineCapture === true;
-
-    console.log("Configuration", self.ctx.configuration);
-    console.log("Decline Auth Simulate flag", declineAuth);
-    console.log("Decline Capture Simulate flag", declineCapture);
-
-    try {
-
-       configure(continueIfDisabled,self.nameSpace, self.cb).then(function(result) {
-          switch(paymentAction.actionName) {
-            case "CreatePayment":
-                console.log("adding new payment interaction for ", paymentAction.externalTransactionId);
-                //Add Details
-                return createNewPayment(paymentAction, payment);
-            case "VoidPayment":
-                console.log("Voiding payment interaction for ", payment.externalTransactionId);
-                console.log("Void Payment", payment.id);
-                return voidPayment(paymentAction, payment);
-            case "AuthorizePayment":
-                console.log("Authorizing payment for ", payment.externalTransactionId);
-                return confirmAndAuthorize(paymentAction, payment, self.ctx.apiContext, result.captureOnAuthorize, declineAuth);
-            case "CapturePayment":
-                console.log("Capturing payment for ", payment.externalTransactionId);
-                return captureAmount(paymentAction, payment,declineCapture);
-            case "CreditPayment":
-                console.log("Crediting payment for ", payment.externalTransactionId);
-                return creditPayment(paymentAction, payment);
-            case "DeclinePayment":
-                console.log("Decline payment for ",payment.externalTransactionId);
-                return declinePayment(paymentAction, payment);
-            default:
-              return {status: paymentConstants.FAILED,responseText: "Not implemented", responseCode: "NOTIMPLEMENTED"};
-          }
-      }).then(function(paymentResult) {
-        processPaymentResult(paymentResult, paymentAction);
-        self.cb();
-      }, function(err) {
-        self.ctx.exec.addPaymentInteraction({ status: paymentConstants.FAILED, 
-                    gatewayResponseText: err
-                  });
-        self.cb(err);
-      });
-    } catch(e) {
-      self.cb(e);
-    }
-  };
-
-
-  //Close the order in amazon once the order has been marked as completed in mozu
-  self.closeOrder = function() {
-    try {
-      var mzOrder = self.ctx.get.order();
-      if (mzOrder.status != "Completed") return self.cb();
-        console.log("Order", mzOrder);
-      //validate it is amazon payment
-      var payment = _.find(mzOrder.payments, function(payment){
-                        return payment.paymentType == paymentConstants.PAYMENTSETTINGID && payment.status=="Collected";
-                    } );
-      console.log("Amazon payment payment", payment);
-
-      if (!payment) return self.cb();
-      configure(true, self.nameSpace, self.cb).then(function(result){
-        return amazonPay.getOrderDetails(payment.externalTransactionId);
-      }).then(function(awsOrder) {
-         var state = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails.OrderReferenceStatus.State;
-         console.log("Aws Order status", state);
-         if (state != "Open") return;
-
-          return amazonPay.closeOrder(payment.externalTransactionId).then(function(closeResult){
-            console.log("Close AWS Oder result",closeResult);
-          }, function(err) {
-            console.log("Close Aws order error", err);
-          });
-      }).then(self.cb, self.cb);
-    } catch(e) {
-      self.cb(e);
-    }
-  };
-
-  function processPaymentResult(paymentResult, paymentAction) {
-    var interactionType = "";
-    var isManual = false;
-
-    if (paymentAction.manualGatewayInteraction)
-      isManual = true;
-
-    switch(paymentAction.actionName) {
-            case "VoidPayment":
-               interactionType = "Void";
-               break;
-            case "CreatePayment":
-            case "AuthorizePayment":
-              interactionType = "Authorization";
-              break;
-            case "CapturePayment":
-              interactionType = "Capture";
-              break;
-            case "CreditPayment":
-              interactionType = "Credit";
-              break;
-            case "DeclinePayment":
-              interactionType = "Decline";
-              break;
-            case "RollbackPayment":
-              interactionType = "Rollback";
-              break;
-            default:
-              interactionType = "";
-              break;
-          }
-
-    if (paymentResult.status == paymentConstants.NEW)
-      self.ctx.exec.setPaymentAmountRequested(paymentAction.amount);
-
-    var interaction  =  {status: paymentResult.status, interactionType: interactionType};
-    if (paymentResult.amount) 
-      interaction.amount = paymentResult.amount;
-
-    if (paymentResult.awsTransactionId)
-      interaction.gatewayTransactionId = paymentResult.awsTransactionId;
-
-    if (paymentResult.responseText)
-      interaction.gatewayResponseText= paymentResult.responseText;
-
-    if (paymentResult.responseCode)
-      interaction.gatewayResponseCode= paymentResult.responseCode;
-
-    interaction.isManual = isManual;
-    console.log("Payment Action result", interaction);
-
-    self.ctx.exec.addPaymentInteraction(interaction);
-
-
-
-    if (paymentResult.captureOnAuthorize) {
-      interaction.gatewayTransactionId = paymentResult.captureId;
-      interaction.status = paymentConstants.CAPTURED;
-      self.ctx.exec.addPaymentInteraction(interaction);
-    }
-
-    if (paymentResult.status == paymentConstants.CREDITPENDING)
-      self.ctx.exec.setPaymentAmountCredited(paymentResult.amount);
-
-    if (paymentResult.status == paymentConstants.CAPTURED)
-      self.ctx.exec.setPaymentAmountCollected(paymentResult.amount);
- 
-  }
-};
-
-},{"./amazonpaysdk":2,"./constants":3,"guid":174,"mozu-action-helpers/get-app-info":176,"mozu-node-sdk/clients/commerce/order":179,"mozu-node-sdk/clients/commerce/orders/fulfillmentInfo":180,"mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings":181,"mozu-node-sdk/clients/commerce/settings/generalSettings":182,"mozu-node-sdk/constants":187,"querystring":157,"underscore":242,"url":171}],2:[function(require,module,exports){
 var crypto 	= require("crypto");
 var moment 	= require("moment");
 var _ 		= require("underscore");
@@ -752,7 +34,6 @@ var sortParams = function(params) {
 
 var buildParamString = function(params, uriEncodeValues) {
 	var keys = _.keys(params).sort();
-
 	var paramStr = "";
 	_.each(keys, function(key) {  
 		if (paramStr !== "")
@@ -795,7 +76,7 @@ module.exports = function() {
 		//add timestamp
 		var utcTime = moment.utc();
 
-		params = _.extend(params, getBaseParams(action, self.config));
+		params = _.extendOwn(params, getBaseParams(action, self.config));
 		params.Timestamp = utcTime.format('YYYY-MM-DDTHH:mm:ss')+"Z";
 
 		params = sortParams(params);
@@ -835,7 +116,7 @@ module.exports = function() {
 			self.getProfile(access_token).then(function(data) {
 					resolve(true);
 				}, function(err) {
-					console.log("Validate token error", err);
+					console.error("Validate token error", err);
 					resolve(false);
 				}
 			);
@@ -917,8 +198,9 @@ module.exports = function() {
 		params['OrderReferenceAttributes.SellerOrderAttributes.SellerOrderId']=orderDetails.orderNumber;
 		params['OrderReferenceAttributes.SellerOrderAttributes.StoreName']=orderDetails.websiteName;
 		params.TransactionTimeout = 0;
+
 		if (declineCapture)			
-			params.sellerCaptureNote = '{"SandboxSimulation": {"State":"Declined", "ReasonCode":"AmazonRejected"}}';
+			params.SellerCaptureNote = '{"SandboxSimulation": {"State":"Declined", "ReasonCode":"AmazonRejected"}}';
 
 		console.log("Requesting AWS Capture", params);
 		return executeRequest("Capture", params);
@@ -951,7 +233,312 @@ module.exports = function() {
 	};
 	return self;
 };
-},{"crypto":9,"moment":175,"needle":217,"underscore":242}],3:[function(require,module,exports){
+},{"crypto":11,"moment":177,"needle":219,"underscore":244}],2:[function(require,module,exports){
+var url = require("url");
+var qs = require("querystring");
+var _ = require("underscore");
+var Guid = require('guid');
+var amazonPay = require("./amazonpaysdk")();
+var constants = require("mozu-node-sdk/constants");
+var paymentConstants = require("./constants");
+var orderClient = require("mozu-node-sdk/clients/commerce/order")();
+var FulfillmentInfoClient = require('mozu-node-sdk/clients/commerce/orders/fulfillmentInfo')();
+var helper = require("./helper");
+var paymentHelper = require("./paymentHelper");
+
+function createOrderFromCart(cartId) {
+  return orderClient.createOrderFromCart({ cartId: ''+cartId+''  }).then(function(order) {
+    console.log("Order created from cart", order);
+    return order;
+  }).then(function(order){
+    console.log("Order fulfillmentInfo" ,order.fulfillmentInfo);
+
+    if (!order.fulfillmentInfo || !order.fulfillmentInfo.data || !order.fulfillmentInfo.data.awsReferenceId) return order;
+
+    console.log("Order has AWS Data. validating AWS order");
+    //already associated with an aws order...validate that it is not cancelled
+    return amazonPay.getOrderDetails(order.fulfillmentInfo.data.awsReferenceId).then(function(awsOrder) {
+        var orderDetails = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails;
+        console.log("AWS Order", orderDetails);
+        var state = orderDetails.OrderReferenceStatus.State;
+        console.log("Aws Order status", state);
+        if (state == "Canceled") {
+          order.fulfillmentinfo = null;
+          return fulfillmentInfoClient.setFulFillmentInfo({orderId: order.id, version: order.version}, {body: {}}).then(function(result) {
+             console.log("Updated order fulfillmentinfo", result);
+              return order;
+          });
+        } else {
+           console.log("AWS order is not canceled, returning order");
+           return order;
+        }
+    });    
+  });
+}
+
+
+function getFulfillmentInfo(awsOrder,data) {
+ 
+  var orderDetails = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails;
+  var destinationPath = orderDetails.Destination.PhysicalDestination;
+  try {
+    var name =  destinationPath.Name;
+    var nameSplit = name.split(" ");
+    var phone = destinationPath.Phone;
+    return { "fulfillmentContact" : { 
+              "firstName" : (nameSplit[0] ? nameSplit[0] : "N/A"), 
+              "lastNameOrSurname" : (nameSplit[1] ? nameSplit[1] : "N/A"), 
+              "email" : orderDetails.Buyer.Email,
+              "phoneNumbers" : {
+                "home" : (phone ? phone : "N/A")
+              },
+              "address" : {
+                "address1" : destinationPath.AddressLine1,
+                "address2" : destinationPath.AddressLine2,
+                "cityOrTown" : destinationPath.City,
+                "stateOrProvince": destinationPath.StateOrRegion,
+                "postalOrZipCode": destinationPath.PostalCode,
+                "countryCode": destinationPath.CountryCode,
+                "addressType": "Residential",
+                "isValidated": "true"
+              }
+            },
+            "data" : data
+      };
+  } catch(e) {
+    console.log(e);
+    new Error(e);
+  }
+}
+
+module.exports = function(context, callback) {
+  var self = this;
+  self.ctx = context;
+  self.cb = callback;
+
+  self.validateUserSession = function() {
+    var user = self.ctx.items.pageContext.user;
+    if ( !user.isAnonymous && !user.IsAuthenticated )
+    {
+      self.ctx.response.redirect('/user/login?returnUrl=' + encodeURIComponent(context.request.url));
+      return context.response.end();
+    }
+  };
+
+  // Validate if the checkout process is for amazon process.
+  // Convert cart to order
+  // redirect to checkout page
+  self.validateAndProcess = function() {
+      var params = helper.parseUrlParams(self.ctx);
+
+      if (!helper.isAmazonCheckout(self.ctx)) return self.cb();
+      console.log(self.ctx.apiContext);
+     
+
+      paymentHelper.getPaymentConfig(self.ctx).
+      then(function(config) { 
+        if (!config.isEnabled) return self.cb();
+        amazonPay.configure(config);
+        return amazonPay.validateToken(params.access_token); 
+      }).then(function(isTokenValid) {
+        console.log("Is Amazon token valid", isTokenValid);
+
+        var cartId = params.cartId;
+        if (isTokenValid && cartId) {
+
+          //validate user claims
+          helper.validateUserSession(self.ctx);
+
+          console.log("Converting cart to order", cartId);
+          return createOrderFromCart(cartId);
+        } else if (!isTokenValid) {
+          console.log("Amazon token and expried, redirecting to cart");
+          self.ctx.response.redirect('/cart');
+          return self.ctx.response.end();
+        } 
+      }).then(function(order) {
+        console.log("Order created from cart", order.id);
+        delete params.cartId;
+        var queryString = "";
+        Object.keys(params).forEach(function(key){
+            if (queryString !== "")
+              queryString += "&";
+            queryString += key +"=" + params[key];
+        });
+        
+        self.ctx.response.redirect('/checkout/'+order.id+"?"+queryString);
+        self.ctx.response.end();
+      }).then(self.cb, self.cb);   
+  };
+
+  //Add view data to control theme flow
+  //Check if token expired before getting fulfillment info. if token expired redirect to cart page for re-authentication
+  self.addViewData = function() {
+    var params = helper.parseUrlParams(self.ctx);
+
+    if (!helper.isAmazonCheckout(self.ctx)) return self.cb();
+
+    paymentHelper.getPaymentConfig(self.ctx).
+    then(function(config) { 
+       if (!config.isEnabled) return self.cb();
+        amazonPay.configure(config);
+        return amazonPay.validateToken(params.access_token); 
+      }).then(function(isTokenValid) {
+        console.log("is token valid", isTokenValid);
+        if (!isTokenValid) {
+          console.log("Amazon token and expried, redirecting to cart");
+          self.ctx.response.redirect('/cart');
+          self.ctx.response.end();
+        } else if (_.has(params, "view")) {
+          console.log("Changing view name to amazonpay");
+          self.ctx.response.viewName = params.view;
+        }
+        else
+          self.ctx.response.viewData.awsCheckout = true;
+        self.cb();
+      }).catch(function(err) {
+        console.error(err);
+        self.cb(err);
+      });
+
+  };
+
+
+  // Get full shipping information from amazon. need a valid token to get full shipping details from amazon
+  // Aws Referenceid and token is passed in fulfillmentInfo.data object
+  // update request params with new fulfillmentinfo
+  self.addFulfillmentInfo = function() {
+    console.log(self.ctx.request.params);
+
+    var fulfillmentInfo = self.ctx.request.params.fulfillmentInfo;
+    var data = fulfillmentInfo.data;
+    if (!data) return self.cb();
+
+    var awsReferenceId = data.awsReferenceId;
+    var addressConsentToken = data.addressAuthorizationToken;
+
+    if (!awsReferenceId && !addressConsentToken) { 
+      console.log("not an amazon order...");
+      return self.cb(); 
+    }
+    console.log("Reading payment settings for "+self.nameSpace+"~"+paymentConstants.PAYMENTSETTINGID);
+
+
+    paymentHelper.getPaymentConfig(self.ctx)
+    .then(function(config) {
+        console.log(config);
+        if (!config.isEnabled) return self.cb();
+        amazonPay.configure(config);
+        return amazonPay.validateToken(addressConsentToken); 
+    }).then(function(isTokenValid){
+        if (!isTokenValid) self.cb();
+        
+        if (isTokenValid) {
+          console.log("Pay by Amazon token is valid...setting fulfilmment info");
+          return amazonPay.getOrderDetails(awsReferenceId, addressConsentToken);
+        } else {
+          throw new Error("Amazon session expired. Please re-login from cart page to continue checkout");
+        }
+    })
+    .then(function(awsOrder) {
+      self.ctx.request.params.fulfillmentInfo = getFulfillmentInfo(awsOrder, data);
+      console.log("fulfillmentInfo from AWS", self.ctx.request.params.fulfillmentInfo );
+      self.cb();
+    }).catch(function(err) {
+      console.error(err);
+      self.cb(err);
+    });
+  };
+
+  //Process payment interactions
+  self.processPayment = function() {
+    var paymentAction = self.ctx.get.paymentAction();
+    var payment = self.ctx.get.payment();    
+
+    console.log("Payment Action", paymentAction);
+    console.log("Payment", payment);
+    console.log("apiContext", self.ctx.apiContext);
+    if (payment.paymentType !== paymentConstants.PAYMENTSETTINGID) return self.cb();
+
+    if (self.ctx.configuration && self.ctx.configuration.payment)
+      declineCapture =  self.ctx.configuration.payment.declineCapture === true;
+
+    try {
+
+       paymentHelper.getPaymentConfig(self.ctx).then(function(config) {
+          //amazonPay.configure(config);
+          switch(paymentAction.actionName) {
+            case "CreatePayment":
+                console.log("adding new payment interaction for ", paymentAction.externalTransactionId);
+                //Add Details
+                return paymentHelper.createNewPayment(self.ctx, config, paymentAction, payment);
+            case "VoidPayment":
+                console.log("Voiding payment interaction for ", payment.externalTransactionId);
+                console.log("Void Payment", payment.id);
+                return paymentHelper.voidPayment(self.ctx, config, paymentAction, payment);
+            case "AuthorizePayment":
+                console.log("Authorizing payment for ", payment.externalTransactionId);
+                return paymentHelper.confirmAndAuthorize(self.ctx, config, paymentAction, payment);
+            case "CapturePayment":
+                console.log("Capture payment for ", payment.externalTransactionId);
+                return paymentHelper.captureAmount(self.ctx, config, paymentAction, payment);
+            case "CreditPayment":
+                console.log("Crediting payment for ", payment.externalTransactionId);
+                return paymentHelper.creditPayment(self.ctx, config, paymentAction, payment);
+            case "DeclinePayment":
+                console.log("Decline payment for ",payment.externalTransactionId);
+                return paymentHelper.declinePayment(self.ctx, config, paymentAction, payment);
+            default:
+              return {status: paymentConstants.FAILED,responseText: "Not implemented", responseCode: "NOTIMPLEMENTED"};
+          }
+      }).then(function(paymentResult) {
+        console.log(paymentResult);
+        paymentHelper.processPaymentResult(self.ctx,paymentResult, paymentAction);
+        self.cb();
+      }).catch(function(err){
+        console.error(err);
+        self.ctx.exec.addPaymentInteraction({ status: paymentConstants.FAILED, gatewayResponseText: err});
+        self.cb(err);
+      }).catch(function(err) {
+        console.error(err);
+        self.cb(err);
+      });;
+    } catch(e) {
+      console.error(e);
+      self.cb(e);
+    }
+  };
+
+
+  //Close the order in amazon once the order has been marked as completed in mozu
+  self.closeOrder = function() {
+    var mzOrder = self.ctx.get.order();
+    if (mzOrder.status != "Completed") return self.cb();
+      console.log("Order", mzOrder);
+    //validate it is amazon payment
+    var payment = _.find(mzOrder.payments, function(payment){
+                      return payment.paymentType == paymentConstants.PAYMENTSETTINGID && payment.status=="Collected";
+                  } );
+    console.log("Amazon payment payment", payment);
+
+    if (!payment) return self.cb();
+    configure(true, self.nameSpace, self.cb).then(function(result){
+      return amazonPay.getOrderDetails(payment.externalTransactionId);
+    }).then(function(awsOrder) {
+       var state = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails.OrderReferenceStatus.State;
+       console.log("Aws Order status", state);
+       if (state != "Open") return;
+
+        return amazonPay.closeOrder(payment.externalTransactionId).then(function(closeResult){
+          console.log("Close AWS Oder result",closeResult);
+        }, function(err) {
+          console.log("Close Aws order error", err);
+        });
+    }).then(self.cb, self.cb);
+  };
+};
+
+},{"./amazonpaysdk":1,"./constants":3,"./helper":4,"./paymentHelper":5,"guid":176,"mozu-node-sdk/clients/commerce/order":181,"mozu-node-sdk/clients/commerce/orders/fulfillmentInfo":182,"mozu-node-sdk/constants":189,"querystring":159,"underscore":244,"url":173}],3:[function(require,module,exports){
 module.exports = {
 	PAYMENTSETTINGID : "PayWithAmazon",
 	ENVIRONMENT: "environment",
@@ -979,6 +566,463 @@ module.exports = {
 
 };
 },{}],4:[function(require,module,exports){
+
+var getAppInfo = require('mozu-action-helpers/get-app-info');
+var url = require("url");
+var qs = require("querystring");
+var _ = require("underscore");
+var constants = require("mozu-node-sdk/constants");
+var paymentConstants = require("./constants");
+var GeneralSettings = require('mozu-node-sdk/clients/commerce/settings/generalSettings');
+var Order = require("mozu-node-sdk/clients/commerce/order");
+var Guid = require('guid');
+
+
+var helper = module.exports = {
+	createClientFromContext: function (client, context, removeClaims) {
+	  var c = client(context);
+	  if (removeClaims)
+		  c.context[constants.headers.USERCLAIMS] = null;
+	  return c;
+	},
+	validateUserSession : function(context) {
+		var user = context.items.pageContext.user;
+		if ( !user.isAnonymous && !user.IsAuthenticated ) 
+		{
+			self.ctx.response.redirect('/user/login?returnUrl=' + encodeURIComponent(context.request.url));
+			return context.response.end();
+		}
+	},
+	getPaymentFQN: function(context) {
+		var appInfo = getAppInfo(context);
+		return appInfo.namespace+"~"+paymentConstants.PAYMENTSETTINGID;
+	},
+	isAmazonCheckout: function (context) {
+	  var params = this.parseUrlParams(context);
+	  var hasAmzParams = _.has(params, 'access_token') && _.has(params, "isAwsCheckout");
+	  console.log("is Amazon checkout?", hasAmzParams);
+	  return hasAmzParams;
+	},
+	parseUrlParams: function(context) {
+		var request = context.request;
+		var urlParseResult = url.parse(request.url);
+		console.log("parsedUrl", urlParseResult);
+		queryStringParams = qs.parse(urlParseResult.query);
+		return queryStringParams;
+	},
+	isCartPage: function(context) {
+		return context.request.url.indexOf("/cart") > -1;
+	},
+	isCheckoutPage: function(context) {
+		return context.request.url.indexOf("/checkout") > -1;
+	},
+	getOrderDetails: function(context, orderId) {
+		var orderClient = this.createClientFromContext(Order,context);
+		var generalSettingsClient = this.createClientFromContext(GeneralSettings, context, true);
+
+	  	return generalSettingsClient.getGeneralSettings()
+	  		.then(function(settings){
+			    return orderClient.getOrder({orderId: orderId})
+			    .then(function(order) {
+			      return {orderNumber: order.orderNumber, websiteName: settings.websiteName};
+			    });
+	  		});
+	},
+	getUniqueId: function () {
+	  var guid = Guid.create();
+	  return guid.value.replace(/\-/g, "");
+	}
+
+};
+},{"./constants":3,"guid":176,"mozu-action-helpers/get-app-info":178,"mozu-node-sdk/clients/commerce/order":181,"mozu-node-sdk/clients/commerce/settings/generalSettings":184,"mozu-node-sdk/constants":189,"querystring":159,"underscore":244,"url":173}],5:[function(require,module,exports){
+var PaymentSettings = require("mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings");
+var helper = require("./helper");
+var _ = require("underscore");
+var paymentConstants = require("./constants");
+var amazonPay = require("./amazonpaysdk")();
+
+function getValue(paymentSetting, key) {
+  var value = _.findWhere(paymentSetting.credentials, {"apiName" : key});
+
+    if (!value) {
+      console.log(key+" not found");
+      return;
+    }
+    //console.log("Key: "+key, value.value );
+    return value.value;
+}
+
+var paymentHelper = module.exports = {
+
+	getPaymentConfig: function(context) {
+		return helper.createClientFromContext(PaymentSettings, context, true)
+		.getThirdPartyPaymentWorkflowWithValues({fullyQualifiedName: helper.getPaymentFQN(context)})
+      	.then(function(paymentSetting) {
+	        var environment = getValue(paymentSetting, paymentConstants.ENVIRONMENT);
+	        var isSandbox = environment == "sandbox";
+	        var region = getValue(paymentSetting, paymentConstants.REGION);
+	        var awsSecret = getValue(paymentSetting, paymentConstants.AWSSECRET);
+	        var awsAccessKeyId = getValue(paymentSetting, paymentConstants.AWSACCESSKEYID);
+	        var sellerId = getValue(paymentSetting, paymentConstants.SELLERID);
+	        var appId = getValue(paymentSetting, paymentConstants.APPID);
+	        var orderProcessing = getValue(paymentSetting, paymentConstants.ORDERPROCESSING);
+	       
+	        var captureOnAuthorize = (orderProcessing == paymentConstants.CAPTUREONSUBMIT);
+
+	        var config = {"isSandbox" : isSandbox, 
+	                      "awsAccessKeyId" : awsAccessKeyId, 
+	                          "awsSecret" : awsSecret,
+	                          "sellerId" : sellerId,
+	                          "region" : region,
+	                          "app_id" : appId,
+	                          "captureOnAuthorize": captureOnAuthorize, isEnabled: paymentSetting.isEnabled };
+
+        	return config;
+    	});
+	},
+	getInteractionByStatus: function (interactions, status) {
+	  return _.find(interactions, function(interaction){
+	      return interaction.status == status;
+	  } );
+	},
+	processPaymentResult: function(context,paymentResult, paymentAction, payment) {
+	    var interactionType = "";
+	    var isManual = false;
+
+	    if (paymentAction.manualGatewayInteraction)
+	      isManual = true;
+
+	    switch(paymentAction.actionName) {
+	            case "VoidPayment":
+	               interactionType = "Void";
+	               break;
+	            case "CreatePayment":
+	            case "AuthorizePayment":
+	              interactionType = "Authorization";
+	              break;
+	            case "CapturePayment":
+	              interactionType = "Capture";
+	              break;
+	            case "CreditPayment":
+	              interactionType = "Credit";
+	              break;
+	            case "DeclinePayment":
+	              interactionType = "Decline";
+	              break;
+	            case "RollbackPayment":
+	              interactionType = "Rollback";
+	              break;
+	            default:
+	              interactionType = "";
+	              break;
+	          }
+
+	    if (paymentResult.status == paymentConstants.NEW)
+	      context.exec.setPaymentAmountRequested(paymentAction.amount);
+
+	    var interaction  =  {status: paymentResult.status, interactionType: interactionType};
+	    if (paymentResult.amount) 
+	      interaction.amount = paymentResult.amount;
+
+	    if (paymentResult.awsTransactionId)
+	      interaction.gatewayTransactionId = paymentResult.awsTransactionId;
+
+	    if (paymentResult.responseText)
+	      interaction.gatewayResponseText= paymentResult.responseText;
+
+	    if (paymentResult.responseCode)
+	      interaction.gatewayResponseCode= paymentResult.responseCode;
+
+	    interaction.isManual = isManual;
+	    console.log("Payment Action result", interaction);
+
+	    context.exec.addPaymentInteraction(interaction);
+
+	    if (paymentResult.captureOnAuthorize) {
+	      interaction.gatewayTransactionId = paymentResult.captureId;
+	      interaction.status = paymentConstants.CAPTURED;
+	      context.exec.addPaymentInteraction(interaction);
+	    }
+
+	    if (paymentResult.status == paymentConstants.CREDITPENDING)
+	      context.exec.setPaymentAmountCredited(paymentResult.amount);
+
+	    if (paymentResult.status == paymentConstants.CAPTURED)
+	      context.exec.setPaymentAmountCollected(paymentResult.amount);
+	},
+	createNewPayment : function(context,config, paymentAction, payment) {
+	
+		var newStatus = { status : paymentConstants.NEW, amount: paymentAction.amount};
+		console.log(newStatus);
+		if (paymentAction.amount === 0)
+			return newStatus;
+
+		amazonPay.configure(config);
+		console.log("config done");
+		try {
+			return helper.getOrderDetails(context,payment.orderId)
+					.then(function(orderDetails) {
+			  orderDetails.amount = paymentAction.amount;
+			  orderDetails.currencyCode=  paymentAction.currencyCode;
+			  console.log("Order Details", orderDetails);
+			  return orderDetails;
+			}).then(function(orderDetails){
+				return amazonPay.setOrderDetails(paymentAction.externalTransactionId, orderDetails)
+				.then(
+				    function(result) {
+				      return newStatus;
+				    }, function(err) {
+				      console.log("Amazon Create new payment Error", err);
+				      return { status : paymentConstants.FAILED, responseText: err.message, responseCode: err.code};
+				    });
+			}).catch(function(err) {
+				console.log(err);
+				return { status : paymentConstants.FAILED, responseText: err};
+			});
+		} catch(e) {
+			console.error(e);
+			return { status : paymentConstants.FAILED, responseText: e};
+		}
+	},
+	authorizePayment: function(context, paymentAction, payment) {
+		try {
+			var declineAuth = false;
+			if (context.configuration && context.configuration.payment)
+		      declineAuth = context.configuration.payment.declineAuth === true;
+
+			return amazonPay.confirmOrder(payment.externalTransactionId)
+			.then(function() {
+		        return amazonPay.requestAuthorzation(payment.externalTransactionId, payment.amountRequested, 
+		          paymentAction.currencyCode, payment.id, config.captureOnAuthorize, declineAuth)
+		        .then(function(authResult) {
+		          var authDetails = authResult.AuthorizeResponse.AuthorizeResult.AuthorizationDetails;
+		          console.log("Authorize result",authDetails);
+		          var state = authDetails.AuthorizationStatus.State;
+		          var status = paymentConstants.DECLINED;
+		          var awsTransactionId = authDetails.AmazonAuthorizationId;
+		          var captureId = null;
+		          if (state == "Open" || state == "Closed") status = paymentConstants.AUTHORIZED;
+		          if (captureOnAuthorize) {
+		            captureId = authDetails.IdList.member;
+		          }
+
+		          var response = {
+		                awsTransactionId: awsTransactionId,
+		                captureId: captureId,
+		                responseCode: 200, 
+		                responseText:  state, 
+		                status: status,
+		                amount: payment.amountRequested,
+		                captureOnAuthorize: captureOnAuthorize
+		              };
+		          console.log("Repsonse", response);
+		          return response;
+		        }, function(err) {
+		          console.error(err);
+		          return {status : paymentConstants.DECLINED, responseCode: err.code, responseText: err.message};
+		        });
+			}).catch(function(err) {
+				console.error(err);
+				return { status : paymentConstants.FAILED, responseText: err};
+			});
+		} catch(e) {
+			console.error(e);
+  			return {status : paymentConstants.DECLINED, responseText: e};
+		}
+	},
+	confirmAndAuthorize: function (context, config, paymentAction, payment) {
+		var  self = this;
+		try {
+			amazonPay.configure(config);
+	  		return this.createNewPayment(context, config, paymentAction, payment)
+	  		.then(function(result) {
+	      		if (result.status == paymentConstants.FAILED) return result; 
+	            return self.authorizePayment(context, paymentAction, payment);
+		    }, function(err) {
+		        console.log("Amazon confirm order failed", err);
+		        return {status : paymentConstants.FAILED, responseCode: err.code, responseText: err.message};
+		    }).catch(function(err) {
+				console.log(err);
+				return { status : paymentConstants.FAILED, responseText: err};
+			});
+  		} catch(e) {
+  			console.error(e);
+  			return {status : paymentConstants.DECLINED, responseText: e};
+  		}
+	},
+	captureAmount: function (context, config, paymentAction, payment) {
+		var self = this;
+		amazonPay.configure(config);
+		var declineCapture = false; 
+		if (context.configuration && context.configuration.payment)
+			declineCapture =  context.configuration.payment.declineCapture === true;
+
+		return helper.getOrderDetails(context, payment.orderId).then(function(orderDetails) {
+			orderDetails.requestedAmount = payment.requestedAmount;
+			orderDetails.captureAmount= paymentAction.amount;
+			orderDetails.currencyCode= paymentAction.currencyCode;
+			 
+			  
+			console.log("Order details", orderDetails);
+
+			if (paymentAction.manualGatewayInteraction) {
+			    console.log("Manual capture...dont send to amazon");
+			    return {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.CAPTURED,
+			            awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId};
+			}
+
+			var interactions = payment.interactions;
+
+			var paymentAuthorizationInteraction = self.getInteractionByStatus(interactions, paymentConstants.AUTHORIZED);
+
+			console.log("Authorized interaction",paymentAuthorizationInteraction );
+			if (!paymentAuthorizationInteraction) {
+			  console.log("interactions", interactions);
+			  return {status : paymentConstants.FAILED,
+			          responseText: "Amazon Authorization Id not found in payment interactions",
+			          responseCode: 500};
+			}
+
+			return amazonPay.captureAmount(paymentAuthorizationInteraction.gatewayTransactionId, orderDetails,
+			                                helper.getUniqueId() ,declineCapture)
+			  .then(function(captureResult){
+			      console.log("AWS Capture Result", captureResult);
+			      var captureDetails = captureResult.CaptureResponse.CaptureResult.CaptureDetails;
+			      var state = captureDetails.CaptureStatus.State;
+			      var captureId = captureDetails.AmazonCaptureId;
+
+			      var response = {
+			        status : (state == "Completed" ? paymentConstants.CAPTURED : paymentConstants.FAILED),
+			        awsTransactionId: captureId,
+			        responseText: state,
+			        responseCode: 200,
+			        amount: orderDetails.captureAmount
+			      };
+
+			      return response;
+
+			}, function(err) {
+			  console.error("Capture Error", err);
+			  return {status : paymentConstants.FAILED,
+			          responseText: err.message,
+			      responseCode: err.code};
+			});
+		}).catch(function(err) {
+			console.error(err);
+			return { status : paymentConstants.FAILED, responseText: err};
+		});
+	},
+	creditPayment: function (context, config, paymentAction, payment) {
+		var self = this;
+		amazonPay.configure(config);
+		return helper.getOrderDetails(context,payment.orderId).then(function(orderDetails) {
+			var capturedInteraction = self.getInteractionByStatus(payment.interactions,paymentConstants.CAPTURED);
+			console.log("AWS Refund, previous capturedInteraction", capturedInteraction);
+			if (!capturedInteraction) {
+				return {status : paymentConstants.FAILED, responseCode: "InvalidRequest", responseText: "Payment has not been captured to issue refund"};
+			} 
+
+			if (paymentAction.manualGatewayInteraction) {
+				console.log("Manual credit...dont send to amazon");
+				return {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.CREDITED,
+				        awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId};
+			}
+
+			orderDetails.amount = paymentAction.amount;
+			orderDetails.currencyCode = paymentAction.currencyCode;
+			orderDetails.note = paymentAction.reason;
+			orderDetails.id = helper.getUniqueId();
+
+
+			console.log("Refund details", orderDetails);     
+			return amazonPay.refund(capturedInteraction.gatewayTransactionId, orderDetails).then(
+			function(refundResult) {
+				var refundDetails = refundResult.RefundResponse.RefundResult.RefundDetails;
+				console.log("AWS Refund result", refundDetails);
+				var state = refundDetails.RefundStatus.State;
+				var refundId = refundDetails.AmazonRefundId;
+
+				var response = {
+					status : ( state == "Pending" ? paymentConstants.CREDITPENDING : (state == "Completed" ? paymentConstants.CREDITED : paymentConstants.FAILED)),
+					awsTransactionId: refundId,
+					responseText: state,
+					responseCode: 200,
+					amount: paymentAction.amount
+				};
+				console.log("Refund response", response);
+				return response;
+			}, function(err) {
+				console.error("Capture Error", err);
+				return {status : paymentConstants.FAILED,
+				        responseText: err.message,
+				    responseCode: err.code};
+			});
+		}).catch(function(err) {
+			console.error(err);
+			return { status : paymentConstants.FAILED, responseText: err};
+		});
+	},
+	voidPayment : function (context, config, paymentAction, payment) {
+		var self = this;
+		amazonPay.configure(config);
+	  //var promise = new Promise(function(resolve, reject) {
+	    if (paymentAction.manualGatewayInteraction) {
+	          console.log("Manual void...dont send to amazon");
+	          return {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.VOIDED,
+	                  awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId};
+	    }
+
+	    var capturedInteraction = self.getInteractionByStatus(payment.interactions,paymentConstants.CAPTURED);
+	    console.log("Void Payment - Captured interaction", capturedInteraction);
+	    if (capturedInteraction) {
+	      return {status : paymentConstants.FAILED, responseCode: "InvalidRequest", responseText: "Payment with captures cannot be voided. Please issue a refund"};
+	    } 
+
+	    var authorizedInteraction = self.getInteractionByStatus(payment.interactions,paymentConstants.AUTHORIZED);
+	    if (!authorizedInteraction) 
+	      return {status: paymentConstants.VOIDED};
+
+	    return amazonPay.cancelOrder(payment.externalTransactionId).then(function(result) {
+	      console.log("Amazon cancel result", result);
+	      return {status: paymentConstants.VOIDED, amount: paymentAction.amount};
+	    }, function(err){
+	       console.error("Amazon cancel failed", err);
+	        return {status: paymentConstants.FAILED,responseText: err.message,responseCode: err.code};
+	    }).catch(function(err) {
+			console.error(err);
+			return { status : paymentConstants.FAILED, responseText: err};
+		});
+
+	  //});
+	  //return promise;
+	},
+	declinePayment: function (context, config, paymentAction, payment) {
+		var self = this;
+	    if (paymentAction.manualGatewayInteraction) {
+	          console.log("Manual decline...dont send to amazon");
+	          return {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.DECLINED,
+	                  awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId};
+	    }
+	    var capturedInteraction = getInteractionByStatus(payment.interactions, paymentConstants.CAPTURED);
+	    if (capturedInteraction) {
+	      console.log("Capture found for payment, cannot decline");
+	      return {status: paymentConstants.FAILED, responseCode: "InvalidRequest", responseText: "Payment with captures cannot be declined"};
+	    }
+
+		amazonPay.configure(config);
+	    return amazonPay.cancelOrder(payment.externalTransactionId).then(function(result){
+	      console.log(result);
+	      return {status:paymentConstants.DECLINED};
+	    }, function(err) {
+	      console.error(err);
+	      return {status:paymentConstants.FAILED, responseText: err.message, responseCode: err.code};
+	    });
+	}
+
+
+
+};
+},{"./amazonpaysdk":1,"./constants":3,"./helper":4,"mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings":183,"underscore":244}],6:[function(require,module,exports){
 /**
  * Implementation for http.storefront.pages.global.request.before
  * This function will receive the following context object:
@@ -990,22 +1034,36 @@ module.exports = {
  */
 
 
-var AmazonCheckout = require("../../amazoncheckout");
+var AmazonCheckout = require("../../amazon/checkout");
+var helper = require("../../amazon/helper");
 
+function addErrorToModel(context, error) {
+    console.log("Adding error to viewData", error);
+    context.response.viewData.model.messages =  [ 
+      {"message": "'"+error+"'"}
+    ];
+
+}
 
 module.exports = function(context, callback) {
-  try {
-    if (context.request.url.indexOf("/checkout") > -1 || context.request.url.indexOf("/cart") > -1) {
-      var amazonCheckout = new AmazonCheckout(context, callback);
-      amazonCheckout.addViewData();
-    } 
-    else
+
+  var amazonError = context.cache.request.get("amazonError");
+  if (amazonError) addErrorToModel(context, amazonError);
+  else {
+    try {
+      if ( helper.isCartPage(context) || helper.isCheckoutPage(context)) {
+        var amazonCheckout = new AmazonCheckout(context, callback);
+        amazonCheckout.addViewData();
+      } 
+      else
+        callback();
+    } catch(e) {
+      addErrorToModel(context, e);
       callback();
-  } catch(e) {
-    callback(e);
+    }
   }
 };
-},{"../../amazoncheckout":1}],5:[function(require,module,exports){
+},{"../../amazon/checkout":2,"../../amazon/helper":4}],7:[function(require,module,exports){
 /**
  * Implementation for http.storefront.pages.global.request.before
  * This function will receive the following context object:
@@ -1017,9 +1075,13 @@ module.exports = function(context, callback) {
  */
 
 
-var AmazonCheckout = require("../../amazoncheckout");
+var AmazonCheckout = require("../../amazon/checkout");
 
-
+function setError(err, context, callback) {
+  console.log(err);
+  context.cache.request.set("amazonError", err);
+  callback();
+}
 
 module.exports = function(context, callback) {
   try {
@@ -1030,11 +1092,12 @@ module.exports = function(context, callback) {
     else
       callback();
   } catch(e) {
-    callback(e);
+    console.log(e);
+    setError(e);
   }
   
 };
-},{"../../amazoncheckout":1}],6:[function(require,module,exports){
+},{"../../amazon/checkout":2}],8:[function(require,module,exports){
 module.exports = {
    'http.storefront.pages.global.request.before': {
       actionName:'http.storefront.pages.global.request.before',
@@ -1046,7 +1109,7 @@ module.exports = {
    }
   
 };
-},{"./domains/storefront/http.storefront.pages.global.request.after":4,"./domains/storefront/http.storefront.pages.global.request.before":5}],7:[function(require,module,exports){
+},{"./domains/storefront/http.storefront.pages.global.request.after":6,"./domains/storefront/http.storefront.pages.global.request.before":7}],9:[function(require,module,exports){
 // http://wiki.commonjs.org/wiki/Unit_Testing/1.0
 //
 // THIS IS NOT TESTED NOR LIKELY TO WORK OUTSIDE V8!
@@ -1407,9 +1470,9 @@ var objectKeys = Object.keys || function (obj) {
   return keys;
 };
 
-},{"util/":173}],8:[function(require,module,exports){
+},{"util/":175}],10:[function(require,module,exports){
 
-},{}],9:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
 'use strict';
 
 exports.randomBytes = exports.rng = exports.pseudoRandomBytes = exports.prng = require('randombytes')
@@ -1490,7 +1553,7 @@ var publicEncrypt = require('public-encrypt');
   }
 })
 
-},{"browserify-aes":13,"browserify-sign":29,"browserify-sign/algos":28,"create-ecdh":77,"create-hash":100,"create-hmac":112,"diffie-hellman":113,"pbkdf2":120,"public-encrypt":121,"randombytes":149}],10:[function(require,module,exports){
+},{"browserify-aes":15,"browserify-sign":31,"browserify-sign/algos":30,"create-ecdh":79,"create-hash":102,"create-hmac":114,"diffie-hellman":115,"pbkdf2":122,"public-encrypt":123,"randombytes":151}],12:[function(require,module,exports){
 var md5 = require('create-hash/md5')
 module.exports = EVP_BytesToKey
 function EVP_BytesToKey (password, keyLen, ivLen) {
@@ -1554,7 +1617,7 @@ function EVP_BytesToKey (password, keyLen, ivLen) {
   }
 }
 
-},{"create-hash/md5":102}],11:[function(require,module,exports){
+},{"create-hash/md5":104}],13:[function(require,module,exports){
 // based on the aes implimentation in triple sec
 // https://github.com/keybase/triplesec
 
@@ -1733,7 +1796,7 @@ AES.prototype._doCryptBlock = function (M, keySchedule, SUB_MIX, SBOX) {
 
 exports.AES = AES
 
-},{}],12:[function(require,module,exports){
+},{}],14:[function(require,module,exports){
 var aes = require('./aes')
 var Transform = require('./cipherBase')
 var inherits = require('inherits')
@@ -1832,7 +1895,7 @@ function xorTest (a, b) {
   return out
 }
 
-},{"./aes":11,"./cipherBase":14,"./ghash":17,"buffer-xor":26,"inherits":151}],13:[function(require,module,exports){
+},{"./aes":13,"./cipherBase":16,"./ghash":19,"buffer-xor":28,"inherits":153}],15:[function(require,module,exports){
 var ciphers = require('./encrypter')
 exports.createCipher = exports.Cipher = ciphers.createCipher
 exports.createCipheriv = exports.Cipheriv = ciphers.createCipheriv
@@ -1845,7 +1908,7 @@ function getCiphers () {
 }
 exports.listCiphers = exports.getCiphers = getCiphers
 
-},{"./decrypter":15,"./encrypter":16,"./modes":18}],14:[function(require,module,exports){
+},{"./decrypter":17,"./encrypter":18,"./modes":20}],16:[function(require,module,exports){
 var Transform = require('stream').Transform
 var inherits = require('inherits')
 
@@ -1913,7 +1976,7 @@ CipherBase.prototype._toString = function (value, enc, final) {
   return out.toString('base64')
 }
 
-},{"inherits":151,"stream":169}],15:[function(require,module,exports){
+},{"inherits":153,"stream":171}],17:[function(require,module,exports){
 var aes = require('./aes')
 var Transform = require('./cipherBase')
 var inherits = require('inherits')
@@ -2051,7 +2114,7 @@ function createDecipher (suite, password) {
 exports.createDecipher = createDecipher
 exports.createDecipheriv = createDecipheriv
 
-},{"./EVP_BytesToKey":10,"./aes":11,"./authCipher":12,"./cipherBase":14,"./modes":18,"./modes/cbc":19,"./modes/cfb":20,"./modes/cfb1":21,"./modes/cfb8":22,"./modes/ctr":23,"./modes/ecb":24,"./modes/ofb":25,"./streamCipher":27,"inherits":151}],16:[function(require,module,exports){
+},{"./EVP_BytesToKey":12,"./aes":13,"./authCipher":14,"./cipherBase":16,"./modes":20,"./modes/cbc":21,"./modes/cfb":22,"./modes/cfb1":23,"./modes/cfb8":24,"./modes/ctr":25,"./modes/ecb":26,"./modes/ofb":27,"./streamCipher":29,"inherits":153}],18:[function(require,module,exports){
 var aes = require('./aes')
 var Transform = require('./cipherBase')
 var inherits = require('inherits')
@@ -2174,7 +2237,7 @@ function createCipher (suite, password) {
 exports.createCipheriv = createCipheriv
 exports.createCipher = createCipher
 
-},{"./EVP_BytesToKey":10,"./aes":11,"./authCipher":12,"./cipherBase":14,"./modes":18,"./modes/cbc":19,"./modes/cfb":20,"./modes/cfb1":21,"./modes/cfb8":22,"./modes/ctr":23,"./modes/ecb":24,"./modes/ofb":25,"./streamCipher":27,"inherits":151}],17:[function(require,module,exports){
+},{"./EVP_BytesToKey":12,"./aes":13,"./authCipher":14,"./cipherBase":16,"./modes":20,"./modes/cbc":21,"./modes/cfb":22,"./modes/cfb1":23,"./modes/cfb8":24,"./modes/ctr":25,"./modes/ecb":26,"./modes/ofb":27,"./streamCipher":29,"inherits":153}],19:[function(require,module,exports){
 var zeros = new Buffer(16)
 zeros.fill(0)
 module.exports = GHASH
@@ -2274,7 +2337,7 @@ function xor (a, b) {
   ]
 }
 
-},{}],18:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 exports['aes-128-ecb'] = {
   cipher: 'AES',
   key: 128,
@@ -2447,7 +2510,7 @@ exports['aes-256-gcm'] = {
   type: 'auth'
 }
 
-},{}],19:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 var xor = require('buffer-xor')
 
 exports.encrypt = function (self, block) {
@@ -2466,7 +2529,7 @@ exports.decrypt = function (self, block) {
   return xor(out, pad)
 }
 
-},{"buffer-xor":26}],20:[function(require,module,exports){
+},{"buffer-xor":28}],22:[function(require,module,exports){
 var xor = require('buffer-xor')
 
 exports.encrypt = function (self, data, decrypt) {
@@ -2499,7 +2562,7 @@ function encryptStart (self, data, decrypt) {
   return out
 }
 
-},{"buffer-xor":26}],21:[function(require,module,exports){
+},{"buffer-xor":28}],23:[function(require,module,exports){
 function encryptByte (self, byteParam, decrypt) {
   var pad
   var i = -1
@@ -2535,7 +2598,7 @@ function shiftIn (buffer, value) {
   return out
 }
 
-},{}],22:[function(require,module,exports){
+},{}],24:[function(require,module,exports){
 function encryptByte (self, byteParam, decrypt) {
   var pad = self._cipher.encryptBlock(self._prev)
   var out = pad[0] ^ byteParam
@@ -2552,7 +2615,7 @@ exports.encrypt = function (self, chunk, decrypt) {
   return out
 }
 
-},{}],23:[function(require,module,exports){
+},{}],25:[function(require,module,exports){
 var xor = require('buffer-xor')
 
 function incr32 (iv) {
@@ -2585,7 +2648,7 @@ exports.encrypt = function (self, chunk) {
   return xor(chunk, pad)
 }
 
-},{"buffer-xor":26}],24:[function(require,module,exports){
+},{"buffer-xor":28}],26:[function(require,module,exports){
 exports.encrypt = function (self, block) {
   return self._cipher.encryptBlock(block)
 }
@@ -2593,7 +2656,7 @@ exports.decrypt = function (self, block) {
   return self._cipher.decryptBlock(block)
 }
 
-},{}],25:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
 var xor = require('buffer-xor')
 
 function getBlock (self) {
@@ -2611,7 +2674,7 @@ exports.encrypt = function (self, chunk) {
   return xor(chunk, pad)
 }
 
-},{"buffer-xor":26}],26:[function(require,module,exports){
+},{"buffer-xor":28}],28:[function(require,module,exports){
 module.exports = function xor (a, b) {
   var length = Math.min(a.length, b.length)
   var buffer = new Buffer(length)
@@ -2623,7 +2686,7 @@ module.exports = function xor (a, b) {
   return buffer
 }
 
-},{}],27:[function(require,module,exports){
+},{}],29:[function(require,module,exports){
 var aes = require('./aes')
 var Transform = require('./cipherBase')
 var inherits = require('inherits')
@@ -2650,7 +2713,7 @@ StreamCipher.prototype._final = function () {
   this._cipher.scrub()
 }
 
-},{"./aes":11,"./cipherBase":14,"inherits":151}],28:[function(require,module,exports){
+},{"./aes":13,"./cipherBase":16,"inherits":153}],30:[function(require,module,exports){
 'use strict'
 exports['RSA-SHA224'] = exports.sha224WithRSAEncryption = {
   sign: 'rsa',
@@ -2723,7 +2786,7 @@ exports['RSA-MD5'] = exports.md5WithRSAEncryption = {
   id: new Buffer('3020300c06082a864886f70d020505000410', 'hex')
 }
 
-},{}],29:[function(require,module,exports){
+},{}],31:[function(require,module,exports){
 'use strict'
 var sign = require('./sign')
 var verify = require('./verify')
@@ -2818,7 +2881,7 @@ Verify.prototype.verify = function verifyMethod (key, sig, enc) {
   return verify(sig, Buffer.concat([this._tag, hash]), key, this._signType)
 }
 
-},{"./algos":28,"./sign":74,"./verify":75,"create-hash":100,"inherits":151,"stream":169}],30:[function(require,module,exports){
+},{"./algos":30,"./sign":76,"./verify":77,"create-hash":102,"inherits":153,"stream":171}],32:[function(require,module,exports){
 'use strict'
 exports['1.3.132.0.10'] = 'secp256k1'
 
@@ -2828,7 +2891,7 @@ exports['1.2.840.10045.3.1.1'] = 'p192'
 
 exports['1.2.840.10045.3.1.7'] = 'p256'
 
-},{}],31:[function(require,module,exports){
+},{}],33:[function(require,module,exports){
 (function (module, exports) {
 
 'use strict';
@@ -5148,7 +5211,7 @@ Mont.prototype.invm = function invm(a) {
 
 })(typeof module === 'undefined' || module, this);
 
-},{}],32:[function(require,module,exports){
+},{}],34:[function(require,module,exports){
 var bn = require('bn.js');
 var randomBytes = require('randombytes');
 module.exports = crt;
@@ -5195,7 +5258,7 @@ function getr(priv) {
   }
   return r;
 }
-},{"bn.js":31,"randombytes":149}],33:[function(require,module,exports){
+},{"bn.js":33,"randombytes":151}],35:[function(require,module,exports){
 'use strict';
 
 var elliptic = exports;
@@ -5210,7 +5273,7 @@ elliptic.curves = require('./elliptic/curves');
 // Protocols
 elliptic.ec = require('./elliptic/ec');
 
-},{"../package.json":53,"./elliptic/curve":36,"./elliptic/curves":39,"./elliptic/ec":40,"./elliptic/hmac-drbg":43,"./elliptic/utils":45,"brorand":46}],34:[function(require,module,exports){
+},{"../package.json":55,"./elliptic/curve":38,"./elliptic/curves":41,"./elliptic/ec":42,"./elliptic/hmac-drbg":45,"./elliptic/utils":47,"brorand":48}],36:[function(require,module,exports){
 'use strict';
 
 var bn = require('bn.js');
@@ -5527,7 +5590,7 @@ BasePoint.prototype.dblp = function dblp(k) {
   return r;
 };
 
-},{"../../elliptic":33,"bn.js":31}],35:[function(require,module,exports){
+},{"../../elliptic":35,"bn.js":33}],37:[function(require,module,exports){
 'use strict';
 
 var curve = require('../curve');
@@ -5900,7 +5963,7 @@ Point.prototype.getY = function getY() {
 Point.prototype.toP = Point.prototype.normalize;
 Point.prototype.mixedAdd = Point.prototype.add;
 
-},{"../../elliptic":33,"../curve":36,"bn.js":31,"inherits":151}],36:[function(require,module,exports){
+},{"../../elliptic":35,"../curve":38,"bn.js":33,"inherits":153}],38:[function(require,module,exports){
 'use strict';
 
 var curve = exports;
@@ -5910,7 +5973,7 @@ curve.short = require('./short');
 curve.mont = require('./mont');
 curve.edwards = require('./edwards');
 
-},{"./base":34,"./edwards":35,"./mont":37,"./short":38}],37:[function(require,module,exports){
+},{"./base":36,"./edwards":37,"./mont":39,"./short":40}],39:[function(require,module,exports){
 'use strict';
 
 var curve = require('../curve');
@@ -6073,7 +6136,7 @@ Point.prototype.getX = function getX() {
   return this.x.fromRed();
 };
 
-},{"../curve":36,"bn.js":31,"inherits":151}],38:[function(require,module,exports){
+},{"../curve":38,"bn.js":33,"inherits":153}],40:[function(require,module,exports){
 'use strict';
 
 var curve = require('../curve');
@@ -6982,7 +7045,7 @@ JPoint.prototype.isInfinity = function isInfinity() {
   return this.z.cmpn(0) === 0;
 };
 
-},{"../../elliptic":33,"../curve":36,"bn.js":31,"inherits":151}],39:[function(require,module,exports){
+},{"../../elliptic":35,"../curve":38,"bn.js":33,"inherits":153}],41:[function(require,module,exports){
 'use strict';
 
 var curves = exports;
@@ -7141,7 +7204,7 @@ defineCurve('secp256k1', {
   ]
 });
 
-},{"../elliptic":33,"./precomputed/secp256k1":44,"hash.js":47}],40:[function(require,module,exports){
+},{"../elliptic":35,"./precomputed/secp256k1":46,"hash.js":49}],42:[function(require,module,exports){
 'use strict';
 
 var bn = require('bn.js');
@@ -7352,7 +7415,7 @@ EC.prototype.getKeyRecoveryParam = function(e, signature, Q, enc) {
   throw new Error('Unable to find valid recovery factor');
 };
 
-},{"../../elliptic":33,"./key":41,"./signature":42,"bn.js":31}],41:[function(require,module,exports){
+},{"../../elliptic":35,"./key":43,"./signature":44,"bn.js":33}],43:[function(require,module,exports){
 'use strict';
 
 var bn = require('bn.js');
@@ -7504,7 +7567,7 @@ KeyPair.prototype.inspect = function inspect() {
          ' pub: ' + (this.pub && this.pub.inspect()) + ' >';
 };
 
-},{"../../elliptic":33,"bn.js":31}],42:[function(require,module,exports){
+},{"../../elliptic":35,"bn.js":33}],44:[function(require,module,exports){
 'use strict';
 
 var bn = require('bn.js');
@@ -7576,7 +7639,7 @@ Signature.prototype.toDER = function toDER(enc) {
   return utils.encode(res, enc);
 };
 
-},{"../../elliptic":33,"bn.js":31}],43:[function(require,module,exports){
+},{"../../elliptic":35,"bn.js":33}],45:[function(require,module,exports){
 'use strict';
 
 var hash = require('hash.js');
@@ -7692,7 +7755,7 @@ HmacDRBG.prototype.generate = function generate(len, enc, add, addEnc) {
   return utils.encode(res, enc);
 };
 
-},{"../elliptic":33,"hash.js":47}],44:[function(require,module,exports){
+},{"../elliptic":35,"hash.js":49}],46:[function(require,module,exports){
 module.exports = {
   doubles: {
     step: 4,
@@ -8474,7 +8537,7 @@ module.exports = {
   }
 };
 
-},{}],45:[function(require,module,exports){
+},{}],47:[function(require,module,exports){
 'use strict';
 
 var utils = exports;
@@ -8626,7 +8689,7 @@ function getJSF(k1, k2) {
 }
 utils.getJSF = getJSF;
 
-},{}],46:[function(require,module,exports){
+},{}],48:[function(require,module,exports){
 var r;
 
 module.exports = function rand(len) {
@@ -8685,7 +8748,7 @@ if (typeof window === 'object') {
   }
 }
 
-},{}],47:[function(require,module,exports){
+},{}],49:[function(require,module,exports){
 var hash = exports;
 
 hash.utils = require('./hash/utils');
@@ -8702,7 +8765,7 @@ hash.sha384 = hash.sha.sha384;
 hash.sha512 = hash.sha.sha512;
 hash.ripemd160 = hash.ripemd.ripemd160;
 
-},{"./hash/common":48,"./hash/hmac":49,"./hash/ripemd":50,"./hash/sha":51,"./hash/utils":52}],48:[function(require,module,exports){
+},{"./hash/common":50,"./hash/hmac":51,"./hash/ripemd":52,"./hash/sha":53,"./hash/utils":54}],50:[function(require,module,exports){
 var hash = require('../hash');
 var utils = hash.utils;
 var assert = utils.assert;
@@ -8795,7 +8858,7 @@ BlockHash.prototype._pad = function pad() {
   return res;
 };
 
-},{"../hash":47}],49:[function(require,module,exports){
+},{"../hash":49}],51:[function(require,module,exports){
 var hmac = exports;
 
 var hash = require('../hash');
@@ -8845,7 +8908,7 @@ Hmac.prototype.digest = function digest(enc) {
   return this.outer.digest(enc);
 };
 
-},{"../hash":47}],50:[function(require,module,exports){
+},{"../hash":49}],52:[function(require,module,exports){
 var hash = require('../hash');
 var utils = hash.utils;
 
@@ -8991,7 +9054,7 @@ var sh = [
   8, 5, 12, 9, 12, 5, 14, 6, 8, 13, 6, 5, 15, 13, 11, 11
 ];
 
-},{"../hash":47}],51:[function(require,module,exports){
+},{"../hash":49}],53:[function(require,module,exports){
 var hash = require('../hash');
 var utils = hash.utils;
 var assert = utils.assert;
@@ -9557,7 +9620,7 @@ function g1_512_lo(xh, xl) {
   return r;
 }
 
-},{"../hash":47}],52:[function(require,module,exports){
+},{"../hash":49}],54:[function(require,module,exports){
 var utils = exports;
 var inherits = require('inherits');
 
@@ -9816,7 +9879,7 @@ function shr64_lo(ah, al, num) {
 };
 exports.shr64_lo = shr64_lo;
 
-},{"inherits":151}],53:[function(require,module,exports){
+},{"inherits":153}],55:[function(require,module,exports){
 module.exports={
   "name": "elliptic",
   "version": "3.1.0",
@@ -9882,7 +9945,7 @@ module.exports={
   "readme": "ERROR: No README data found!"
 }
 
-},{}],54:[function(require,module,exports){
+},{}],56:[function(require,module,exports){
 var createHash = require('create-hash');
 module.exports = function evp(password, salt, keyLen) {
   keyLen = keyLen/8;
@@ -9922,7 +9985,7 @@ module.exports = function evp(password, salt, keyLen) {
   }
   return key;
 };
-},{"create-hash":100}],55:[function(require,module,exports){
+},{"create-hash":102}],57:[function(require,module,exports){
 module.exports={"2.16.840.1.101.3.4.1.1": "aes-128-ecb",
 "2.16.840.1.101.3.4.1.2": "aes-128-cbc",
 "2.16.840.1.101.3.4.1.3": "aes-128-ofb",
@@ -9936,7 +9999,7 @@ module.exports={"2.16.840.1.101.3.4.1.1": "aes-128-ecb",
 "2.16.840.1.101.3.4.1.43": "aes-256-ofb",
 "2.16.840.1.101.3.4.1.44": "aes-256-cfb"
 }
-},{}],56:[function(require,module,exports){
+},{}],58:[function(require,module,exports){
 // from https://github.com/indutny/self-signed/blob/gh-pages/lib/asn1.js
 // Fedor, you are amazing.
 
@@ -10055,7 +10118,7 @@ exports.signature = asn1.define('signature', function() {
   );
 });
 
-},{"asn1.js":59}],57:[function(require,module,exports){
+},{"asn1.js":61}],59:[function(require,module,exports){
 // adapted from https://github.com/apatil/pemstrip
 var findProc = /Proc-Type: 4,ENCRYPTED\r?\nDEK-Info: AES-((?:128)|(?:192)|(?:256))-CBC,([0-9A-H]+)\r?\n\r?\n([0-9A-z\n\r\+\/\=]+)\r?\n/m;
 var startRegex =/^-----BEGIN (.*) KEY-----\r?\n/m;
@@ -10097,7 +10160,7 @@ function wrap (str) {
   return chunks.join("\n")
 }
 
-},{"./EVP_BytesToKey":54,"browserify-aes":13}],58:[function(require,module,exports){
+},{"./EVP_BytesToKey":56,"browserify-aes":15}],60:[function(require,module,exports){
 var asn1 = require('./asn1');
 var aesid = require('./aesid.json');
 var fixProc = require('./fixProc');
@@ -10200,7 +10263,7 @@ function decrypt(data, password) {
   return Buffer.concat(out);
 }
 
-},{"./aesid.json":55,"./asn1":56,"./fixProc":57,"browserify-aes":13,"pbkdf2":120}],59:[function(require,module,exports){
+},{"./aesid.json":57,"./asn1":58,"./fixProc":59,"browserify-aes":15,"pbkdf2":122}],61:[function(require,module,exports){
 var asn1 = exports;
 
 asn1.bignum = require('bn.js');
@@ -10211,7 +10274,7 @@ asn1.constants = require('./asn1/constants');
 asn1.decoders = require('./asn1/decoders');
 asn1.encoders = require('./asn1/encoders');
 
-},{"./asn1/api":60,"./asn1/base":62,"./asn1/constants":66,"./asn1/decoders":68,"./asn1/encoders":71,"bn.js":31}],60:[function(require,module,exports){
+},{"./asn1/api":62,"./asn1/base":64,"./asn1/constants":68,"./asn1/decoders":70,"./asn1/encoders":73,"bn.js":33}],62:[function(require,module,exports){
 var asn1 = require('../asn1');
 var inherits = require('inherits');
 
@@ -10272,7 +10335,7 @@ Entity.prototype.encode = function encode(data, enc, /* internal */ reporter) {
   return this._getEncoder(enc).encode(data, reporter);
 };
 
-},{"../asn1":59,"inherits":151,"vm":undefined}],61:[function(require,module,exports){
+},{"../asn1":61,"inherits":153,"vm":undefined}],63:[function(require,module,exports){
 var inherits = require('inherits');
 var Reporter = require('../base').Reporter;
 var Buffer = require('buffer').Buffer;
@@ -10390,7 +10453,7 @@ EncoderBuffer.prototype.join = function join(out, offset) {
   return out;
 };
 
-},{"../base":62,"buffer":undefined,"inherits":151}],62:[function(require,module,exports){
+},{"../base":64,"buffer":undefined,"inherits":153}],64:[function(require,module,exports){
 var base = exports;
 
 base.Reporter = require('./reporter').Reporter;
@@ -10398,7 +10461,7 @@ base.DecoderBuffer = require('./buffer').DecoderBuffer;
 base.EncoderBuffer = require('./buffer').EncoderBuffer;
 base.Node = require('./node');
 
-},{"./buffer":61,"./node":63,"./reporter":64}],63:[function(require,module,exports){
+},{"./buffer":63,"./node":65,"./reporter":66}],65:[function(require,module,exports){
 var Reporter = require('../base').Reporter;
 var EncoderBuffer = require('../base').EncoderBuffer;
 var assert = require('minimalistic-assert');
@@ -10998,7 +11061,7 @@ Node.prototype._encodePrimitive = function encodePrimitive(tag, data) {
     throw new Error('Unsupported tag: ' + tag);
 };
 
-},{"../base":62,"minimalistic-assert":73}],64:[function(require,module,exports){
+},{"../base":64,"minimalistic-assert":75}],66:[function(require,module,exports){
 var inherits = require('inherits');
 
 function Reporter(options) {
@@ -11102,7 +11165,7 @@ ReporterError.prototype.rethrow = function rethrow(msg) {
   return this;
 };
 
-},{"inherits":151}],65:[function(require,module,exports){
+},{"inherits":153}],67:[function(require,module,exports){
 var constants = require('../constants');
 
 exports.tagClass = {
@@ -11146,7 +11209,7 @@ exports.tag = {
 };
 exports.tagByName = constants._reverse(exports.tag);
 
-},{"../constants":66}],66:[function(require,module,exports){
+},{"../constants":68}],68:[function(require,module,exports){
 var constants = exports;
 
 // Helper
@@ -11167,7 +11230,7 @@ constants._reverse = function reverse(map) {
 
 constants.der = require('./der');
 
-},{"./der":65}],67:[function(require,module,exports){
+},{"./der":67}],69:[function(require,module,exports){
 var inherits = require('inherits');
 
 var asn1 = require('../../asn1');
@@ -11458,13 +11521,13 @@ function derDecodeLen(buf, primitive, fail) {
   return len;
 }
 
-},{"../../asn1":59,"inherits":151}],68:[function(require,module,exports){
+},{"../../asn1":61,"inherits":153}],70:[function(require,module,exports){
 var decoders = exports;
 
 decoders.der = require('./der');
 decoders.pem = require('./pem');
 
-},{"./der":67,"./pem":69}],69:[function(require,module,exports){
+},{"./der":69,"./pem":71}],71:[function(require,module,exports){
 var inherits = require('inherits');
 var Buffer = require('buffer').Buffer;
 
@@ -11516,7 +11579,7 @@ PEMDecoder.prototype.decode = function decode(data, options) {
   return DERDecoder.prototype.decode.call(this, input, options);
 };
 
-},{"../../asn1":59,"./der":67,"buffer":undefined,"inherits":151}],70:[function(require,module,exports){
+},{"../../asn1":61,"./der":69,"buffer":undefined,"inherits":153}],72:[function(require,module,exports){
 var inherits = require('inherits');
 var Buffer = require('buffer').Buffer;
 
@@ -11790,13 +11853,13 @@ function encodeTag(tag, primitive, cls, reporter) {
   return res;
 }
 
-},{"../../asn1":59,"buffer":undefined,"inherits":151}],71:[function(require,module,exports){
+},{"../../asn1":61,"buffer":undefined,"inherits":153}],73:[function(require,module,exports){
 var encoders = exports;
 
 encoders.der = require('./der');
 encoders.pem = require('./pem');
 
-},{"./der":70,"./pem":72}],72:[function(require,module,exports){
+},{"./der":72,"./pem":74}],74:[function(require,module,exports){
 var inherits = require('inherits');
 var Buffer = require('buffer').Buffer;
 
@@ -11821,7 +11884,7 @@ PEMEncoder.prototype.encode = function encode(data, options) {
   return out.join('\n');
 };
 
-},{"../../asn1":59,"./der":70,"buffer":undefined,"inherits":151}],73:[function(require,module,exports){
+},{"../../asn1":61,"./der":72,"buffer":undefined,"inherits":153}],75:[function(require,module,exports){
 module.exports = assert;
 
 function assert(val, msg) {
@@ -11834,7 +11897,7 @@ assert.equal = function assertEqual(l, r, msg) {
     throw new Error(msg || ('Assertion failed: ' + l + ' != ' + r));
 };
 
-},{}],74:[function(require,module,exports){
+},{}],76:[function(require,module,exports){
 // much of this based on https://github.com/indutny/self-signed/blob/gh-pages/lib/rsa.js
 var parseKeys = require('parse-asn1')
 var BN = require('bn.js')
@@ -12010,7 +12073,7 @@ function makeR (g, k, p, q) {
   return g.toRed(BN.mont(p)).redPow(k).fromRed().mod(q)
 }
 
-},{"./curves":30,"bn.js":31,"browserify-rsa":32,"create-hmac":112,"elliptic":33,"parse-asn1":58}],75:[function(require,module,exports){
+},{"./curves":32,"bn.js":33,"browserify-rsa":34,"create-hmac":114,"elliptic":35,"parse-asn1":60}],77:[function(require,module,exports){
 'use strict'
 // much of this based on https://github.com/indutny/self-signed/blob/gh-pages/lib/rsa.js
 var parseKeys = require('parse-asn1')
@@ -12112,7 +12175,7 @@ function checkValue (b, q) {
   }
 }
 
-},{"./curves":30,"bn.js":31,"elliptic":33,"parse-asn1":58}],76:[function(require,module,exports){
+},{"./curves":32,"bn.js":33,"elliptic":35,"parse-asn1":60}],78:[function(require,module,exports){
 var elliptic = require('elliptic');
 var BN = require('bn.js');
 
@@ -12226,55 +12289,55 @@ function formatReturnValue(bn, enc, len) {
 	}
 }
 
-},{"bn.js":78,"elliptic":79}],77:[function(require,module,exports){
+},{"bn.js":80,"elliptic":81}],79:[function(require,module,exports){
 var createECDH = require('crypto').createECDH;
 
 module.exports = createECDH || require('./browser');
-},{"./browser":76,"crypto":9}],78:[function(require,module,exports){
-arguments[4][31][0].apply(exports,arguments)
-},{"dup":31}],79:[function(require,module,exports){
+},{"./browser":78,"crypto":11}],80:[function(require,module,exports){
 arguments[4][33][0].apply(exports,arguments)
-},{"../package.json":99,"./elliptic/curve":82,"./elliptic/curves":85,"./elliptic/ec":86,"./elliptic/hmac-drbg":89,"./elliptic/utils":91,"brorand":92,"dup":33}],80:[function(require,module,exports){
-arguments[4][34][0].apply(exports,arguments)
-},{"../../elliptic":79,"bn.js":78,"dup":34}],81:[function(require,module,exports){
+},{"dup":33}],81:[function(require,module,exports){
 arguments[4][35][0].apply(exports,arguments)
-},{"../../elliptic":79,"../curve":82,"bn.js":78,"dup":35,"inherits":151}],82:[function(require,module,exports){
+},{"../package.json":101,"./elliptic/curve":84,"./elliptic/curves":87,"./elliptic/ec":88,"./elliptic/hmac-drbg":91,"./elliptic/utils":93,"brorand":94,"dup":35}],82:[function(require,module,exports){
 arguments[4][36][0].apply(exports,arguments)
-},{"./base":80,"./edwards":81,"./mont":83,"./short":84,"dup":36}],83:[function(require,module,exports){
+},{"../../elliptic":81,"bn.js":80,"dup":36}],83:[function(require,module,exports){
 arguments[4][37][0].apply(exports,arguments)
-},{"../curve":82,"bn.js":78,"dup":37,"inherits":151}],84:[function(require,module,exports){
+},{"../../elliptic":81,"../curve":84,"bn.js":80,"dup":37,"inherits":153}],84:[function(require,module,exports){
 arguments[4][38][0].apply(exports,arguments)
-},{"../../elliptic":79,"../curve":82,"bn.js":78,"dup":38,"inherits":151}],85:[function(require,module,exports){
+},{"./base":82,"./edwards":83,"./mont":85,"./short":86,"dup":38}],85:[function(require,module,exports){
 arguments[4][39][0].apply(exports,arguments)
-},{"../elliptic":79,"./precomputed/secp256k1":90,"dup":39,"hash.js":93}],86:[function(require,module,exports){
+},{"../curve":84,"bn.js":80,"dup":39,"inherits":153}],86:[function(require,module,exports){
 arguments[4][40][0].apply(exports,arguments)
-},{"../../elliptic":79,"./key":87,"./signature":88,"bn.js":78,"dup":40}],87:[function(require,module,exports){
+},{"../../elliptic":81,"../curve":84,"bn.js":80,"dup":40,"inherits":153}],87:[function(require,module,exports){
 arguments[4][41][0].apply(exports,arguments)
-},{"../../elliptic":79,"bn.js":78,"dup":41}],88:[function(require,module,exports){
+},{"../elliptic":81,"./precomputed/secp256k1":92,"dup":41,"hash.js":95}],88:[function(require,module,exports){
 arguments[4][42][0].apply(exports,arguments)
-},{"../../elliptic":79,"bn.js":78,"dup":42}],89:[function(require,module,exports){
+},{"../../elliptic":81,"./key":89,"./signature":90,"bn.js":80,"dup":42}],89:[function(require,module,exports){
 arguments[4][43][0].apply(exports,arguments)
-},{"../elliptic":79,"dup":43,"hash.js":93}],90:[function(require,module,exports){
+},{"../../elliptic":81,"bn.js":80,"dup":43}],90:[function(require,module,exports){
 arguments[4][44][0].apply(exports,arguments)
-},{"dup":44}],91:[function(require,module,exports){
+},{"../../elliptic":81,"bn.js":80,"dup":44}],91:[function(require,module,exports){
 arguments[4][45][0].apply(exports,arguments)
-},{"dup":45}],92:[function(require,module,exports){
+},{"../elliptic":81,"dup":45,"hash.js":95}],92:[function(require,module,exports){
 arguments[4][46][0].apply(exports,arguments)
 },{"dup":46}],93:[function(require,module,exports){
 arguments[4][47][0].apply(exports,arguments)
-},{"./hash/common":94,"./hash/hmac":95,"./hash/ripemd":96,"./hash/sha":97,"./hash/utils":98,"dup":47}],94:[function(require,module,exports){
+},{"dup":47}],94:[function(require,module,exports){
 arguments[4][48][0].apply(exports,arguments)
-},{"../hash":93,"dup":48}],95:[function(require,module,exports){
+},{"dup":48}],95:[function(require,module,exports){
 arguments[4][49][0].apply(exports,arguments)
-},{"../hash":93,"dup":49}],96:[function(require,module,exports){
+},{"./hash/common":96,"./hash/hmac":97,"./hash/ripemd":98,"./hash/sha":99,"./hash/utils":100,"dup":49}],96:[function(require,module,exports){
 arguments[4][50][0].apply(exports,arguments)
-},{"../hash":93,"dup":50}],97:[function(require,module,exports){
+},{"../hash":95,"dup":50}],97:[function(require,module,exports){
 arguments[4][51][0].apply(exports,arguments)
-},{"../hash":93,"dup":51}],98:[function(require,module,exports){
+},{"../hash":95,"dup":51}],98:[function(require,module,exports){
 arguments[4][52][0].apply(exports,arguments)
-},{"dup":52,"inherits":151}],99:[function(require,module,exports){
+},{"../hash":95,"dup":52}],99:[function(require,module,exports){
 arguments[4][53][0].apply(exports,arguments)
-},{"dup":53}],100:[function(require,module,exports){
+},{"../hash":95,"dup":53}],100:[function(require,module,exports){
+arguments[4][54][0].apply(exports,arguments)
+},{"dup":54,"inherits":153}],101:[function(require,module,exports){
+arguments[4][55][0].apply(exports,arguments)
+},{"dup":55}],102:[function(require,module,exports){
 'use strict';
 var inherits = require('inherits')
 var md5 = require('./md5')
@@ -12365,7 +12428,7 @@ module.exports = function createHash (alg) {
   return new Hash(sha(alg))
 }
 
-},{"./md5":102,"inherits":151,"ripemd160":103,"sha.js":105,"stream":169}],101:[function(require,module,exports){
+},{"./md5":104,"inherits":153,"ripemd160":105,"sha.js":107,"stream":171}],103:[function(require,module,exports){
 'use strict';
 var intSize = 4;
 var zeroBuffer = new Buffer(intSize); zeroBuffer.fill(0);
@@ -12400,7 +12463,7 @@ function hash(buf, fn, hashSize, bigEndian) {
   return toBuffer(arr, hashSize, bigEndian);
 }
 exports.hash = hash;
-},{}],102:[function(require,module,exports){
+},{}],104:[function(require,module,exports){
 'use strict';
 /*
  * A JavaScript implementation of the RSA Data Security, Inc. MD5 Message
@@ -12557,7 +12620,7 @@ function bit_rol(num, cnt)
 module.exports = function md5(buf) {
   return helpers.hash(buf, core_md5, 16);
 };
-},{"./helpers":101}],103:[function(require,module,exports){
+},{"./helpers":103}],105:[function(require,module,exports){
 /*
 CryptoJS v3.1.2
 code.google.com/p/crypto-js
@@ -12769,7 +12832,7 @@ function ripemd160 (message) {
 
 module.exports = ripemd160
 
-},{}],104:[function(require,module,exports){
+},{}],106:[function(require,module,exports){
 // prototype class for hash functions
 function Hash (blockSize, finalSize) {
   this._block = new Buffer(blockSize)
@@ -12840,7 +12903,7 @@ Hash.prototype._update = function () {
 
 module.exports = Hash
 
-},{}],105:[function(require,module,exports){
+},{}],107:[function(require,module,exports){
 var exports = module.exports = function SHA (algorithm) {
   algorithm = algorithm.toLowerCase()
 
@@ -12857,7 +12920,7 @@ exports.sha256 = require('./sha256')
 exports.sha384 = require('./sha384')
 exports.sha512 = require('./sha512')
 
-},{"./sha":106,"./sha1":107,"./sha224":108,"./sha256":109,"./sha384":110,"./sha512":111}],106:[function(require,module,exports){
+},{"./sha":108,"./sha1":109,"./sha224":110,"./sha256":111,"./sha384":112,"./sha512":113}],108:[function(require,module,exports){
 /*
  * A JavaScript implementation of the Secure Hash Algorithm, SHA-0, as defined
  * in FIPS PUB 180-1
@@ -12958,7 +13021,7 @@ Sha.prototype._hash = function () {
 module.exports = Sha
 
 
-},{"./hash":104,"inherits":151}],107:[function(require,module,exports){
+},{"./hash":106,"inherits":153}],109:[function(require,module,exports){
 /*
  * A JavaScript implementation of the Secure Hash Algorithm, SHA-1, as defined
  * in FIPS PUB 180-1
@@ -13055,7 +13118,7 @@ Sha1.prototype._hash = function () {
 
 module.exports = Sha1
 
-},{"./hash":104,"inherits":151}],108:[function(require,module,exports){
+},{"./hash":106,"inherits":153}],110:[function(require,module,exports){
 /**
  * A JavaScript implementation of the Secure Hash Algorithm, SHA-256, as defined
  * in FIPS 180-2
@@ -13109,7 +13172,7 @@ Sha224.prototype._hash = function () {
 
 module.exports = Sha224
 
-},{"./hash":104,"./sha256":109,"inherits":151}],109:[function(require,module,exports){
+},{"./hash":106,"./sha256":111,"inherits":153}],111:[function(require,module,exports){
 /**
  * A JavaScript implementation of the Secure Hash Algorithm, SHA-256, as defined
  * in FIPS 180-2
@@ -13260,7 +13323,7 @@ Sha256.prototype._hash = function () {
 
 module.exports = Sha256
 
-},{"./hash":104,"inherits":151}],110:[function(require,module,exports){
+},{"./hash":106,"inherits":153}],112:[function(require,module,exports){
 var inherits = require('inherits')
 var SHA512 = require('./sha512')
 var Hash = require('./hash')
@@ -13318,7 +13381,7 @@ Sha384.prototype._hash = function () {
 
 module.exports = Sha384
 
-},{"./hash":104,"./sha512":111,"inherits":151}],111:[function(require,module,exports){
+},{"./hash":106,"./sha512":113,"inherits":153}],113:[function(require,module,exports){
 var inherits = require('inherits')
 var Hash = require('./hash')
 
@@ -13565,7 +13628,7 @@ Sha512.prototype._hash = function () {
 
 module.exports = Sha512
 
-},{"./hash":104,"inherits":151}],112:[function(require,module,exports){
+},{"./hash":106,"inherits":153}],114:[function(require,module,exports){
 'use strict';
 var createHash = require('create-hash/browser');
 var inherits = require('inherits')
@@ -13635,7 +13698,7 @@ module.exports = function createHmac(alg, key) {
   return new Hmac(alg, key)
 }
 
-},{"create-hash/browser":100,"inherits":151,"stream":169}],113:[function(require,module,exports){
+},{"create-hash/browser":102,"inherits":153,"stream":171}],115:[function(require,module,exports){
 var generatePrime = require('./lib/generatePrime');
 var primes = require('./lib/primes');
 
@@ -13677,7 +13740,7 @@ function createDiffieHellman(prime, enc, generator, genc) {
 exports.DiffieHellmanGroup = exports.createDiffieHellmanGroup = exports.getDiffieHellman = getDiffieHellman;
 exports.createDiffieHellman = exports.DiffieHellman = createDiffieHellman;
 
-},{"./lib/dh":114,"./lib/generatePrime":115,"./lib/primes":116}],114:[function(require,module,exports){
+},{"./lib/dh":116,"./lib/generatePrime":117,"./lib/primes":118}],116:[function(require,module,exports){
 var BN = require('bn.js');
 var MillerRabin = require('miller-rabin');
 var millerRabin = new MillerRabin();
@@ -13845,7 +13908,7 @@ function formatReturnValue(bn, enc) {
     return buf.toString(enc);
   }
 }
-},{"./generatePrime":115,"bn.js":117,"miller-rabin":118,"randombytes":149}],115:[function(require,module,exports){
+},{"./generatePrime":117,"bn.js":119,"miller-rabin":120,"randombytes":151}],117:[function(require,module,exports){
 var randomBytes = require('randombytes');
 module.exports = findPrime;
 findPrime.simpleSieve = simpleSieve;
@@ -13978,7 +14041,7 @@ function findPrime(bits, gen) {
   }
 
 }
-},{"bn.js":117,"miller-rabin":118,"randombytes":149}],116:[function(require,module,exports){
+},{"bn.js":119,"miller-rabin":120,"randombytes":151}],118:[function(require,module,exports){
 module.exports={
     "modp1": {
         "gen": "02",
@@ -14013,9 +14076,9 @@ module.exports={
         "prime": "ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea63b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f24117c4b1fe649286651ece45b3dc2007cb8a163bf0598da48361c55d39a69163fa8fd24cf5f83655d23dca3ad961c62f356208552bb9ed529077096966d670c354e4abc9804f1746c08ca18217c32905e462e36ce3be39e772c180e86039b2783a2ec07a28fb5c55df06f4c52c9de2bcbf6955817183995497cea956ae515d2261898fa051015728e5a8aaac42dad33170d04507a33a85521abdf1cba64ecfb850458dbef0a8aea71575d060c7db3970f85a6e1e4c7abf5ae8cdb0933d71e8c94e04a25619dcee3d2261ad2ee6bf12ffa06d98a0864d87602733ec86a64521f2b18177b200cbbe117577a615d6c770988c0bad946e208e24fa074e5ab3143db5bfce0fd108e4b82d120a92108011a723c12a787e6d788719a10bdba5b2699c327186af4e23c1a946834b6150bda2583e9ca2ad44ce8dbbbc2db04de8ef92e8efc141fbecaa6287c59474e6bc05d99b2964fa090c3a2233ba186515be7ed1f612970cee2d7afb81bdd762170481cd0069127d5b05aa993b4ea988d8fddc186ffb7dc90a6c08f4df435c93402849236c3fab4d27c7026c1d4dcb2602646dec9751e763dba37bdf8ff9406ad9e530ee5db382f413001aeb06a53ed9027d831179727b0865a8918da3edbebcf9b14ed44ce6cbaced4bb1bdb7f1447e6cc254b332051512bd7af426fb8f401378cd2bf5983ca01c64b92ecf032ea15d1721d03f482d7ce6e74fef6d55e702f46980c82b5a84031900b1c9e59e7c97fbec7e8f323a97a7e36cc88be0f1d45b7ff585ac54bd407b22b4154aacc8f6d7ebf48e1d814cc5ed20f8037e0a79715eef29be32806a1d58bb7c5da76f550aa3d8a1fbff0eb19ccb1a313d55cda56c9ec2ef29632387fe8d76e3c0468043e8f663f4860ee12bf2d5b0b7474d6e694f91e6dbe115974a3926f12fee5e438777cb6a932df8cd8bec4d073b931ba3bc832b68d9dd300741fa7bf8afc47ed2576f6936ba424663aab639c5ae4f5683423b4742bf1c978238f16cbe39d652de3fdb8befc848ad922222e04a4037c0713eb57a81a23f0c73473fc646cea306b4bcbc8862f8385ddfa9d4b7fa2c087e879683303ed5bdd3a062b3cf5b3a278a66d2a13f83f44f82ddf310ee074ab6a364597e899a0255dc164f31cc50846851df9ab48195ded7ea1b1d510bd7ee74d73faf36bc31ecfa268359046f4eb879f924009438b481c6cd7889a002ed5ee382bc9190da6fc026e479558e4475677e9aa9e3050e2765694dfc81f56e880b96e7160c980dd98edd3dfffffffffffffffff"
     }
 }
-},{}],117:[function(require,module,exports){
-arguments[4][31][0].apply(exports,arguments)
-},{"dup":31}],118:[function(require,module,exports){
+},{}],119:[function(require,module,exports){
+arguments[4][33][0].apply(exports,arguments)
+},{"dup":33}],120:[function(require,module,exports){
 var bn = require('bn.js');
 var brorand = require('brorand');
 
@@ -14130,9 +14193,9 @@ MillerRabin.prototype.getDivisor = function getDivisor(n, k) {
   return false;
 };
 
-},{"bn.js":117,"brorand":119}],119:[function(require,module,exports){
-arguments[4][46][0].apply(exports,arguments)
-},{"dup":46}],120:[function(require,module,exports){
+},{"bn.js":119,"brorand":121}],121:[function(require,module,exports){
+arguments[4][48][0].apply(exports,arguments)
+},{"dup":48}],122:[function(require,module,exports){
 var createHmac = require('create-hmac')
 var MAX_ALLOC = Math.pow(2, 30) - 1 // default in iojs
 
@@ -14214,7 +14277,7 @@ function pbkdf2Sync (password, salt, iterations, keylen, digest) {
   return DK
 }
 
-},{"create-hmac":112}],121:[function(require,module,exports){
+},{"create-hmac":114}],123:[function(require,module,exports){
 exports.publicEncrypt = require('./publicEncrypt');
 exports.privateDecrypt = require('./privateDecrypt');
 
@@ -14225,7 +14288,7 @@ exports.privateEncrypt = function privateEncrypt(key, buf) {
 exports.publicDecrypt = function publicDecrypt(key, buf) {
   return exports.privateDecrypt(key, buf, true);
 };
-},{"./privateDecrypt":145,"./publicEncrypt":146}],122:[function(require,module,exports){
+},{"./privateDecrypt":147,"./publicEncrypt":148}],124:[function(require,module,exports){
 var createHash = require('create-hash');
 module.exports = function (seed, len) {
   var t = new Buffer('');
@@ -14242,51 +14305,51 @@ function i2ops(c) {
   out.writeUInt32BE(c,0);
   return out;
 }
-},{"create-hash":100}],123:[function(require,module,exports){
-arguments[4][31][0].apply(exports,arguments)
-},{"dup":31}],124:[function(require,module,exports){
-arguments[4][32][0].apply(exports,arguments)
-},{"bn.js":123,"dup":32,"randombytes":149}],125:[function(require,module,exports){
-arguments[4][54][0].apply(exports,arguments)
-},{"create-hash":100,"dup":54}],126:[function(require,module,exports){
-arguments[4][55][0].apply(exports,arguments)
-},{"dup":55}],127:[function(require,module,exports){
+},{"create-hash":102}],125:[function(require,module,exports){
+arguments[4][33][0].apply(exports,arguments)
+},{"dup":33}],126:[function(require,module,exports){
+arguments[4][34][0].apply(exports,arguments)
+},{"bn.js":125,"dup":34,"randombytes":151}],127:[function(require,module,exports){
 arguments[4][56][0].apply(exports,arguments)
-},{"asn1.js":130,"dup":56}],128:[function(require,module,exports){
+},{"create-hash":102,"dup":56}],128:[function(require,module,exports){
 arguments[4][57][0].apply(exports,arguments)
-},{"./EVP_BytesToKey":125,"browserify-aes":13,"dup":57}],129:[function(require,module,exports){
+},{"dup":57}],129:[function(require,module,exports){
 arguments[4][58][0].apply(exports,arguments)
-},{"./aesid.json":126,"./asn1":127,"./fixProc":128,"browserify-aes":13,"dup":58,"pbkdf2":120}],130:[function(require,module,exports){
+},{"asn1.js":132,"dup":58}],130:[function(require,module,exports){
 arguments[4][59][0].apply(exports,arguments)
-},{"./asn1/api":131,"./asn1/base":133,"./asn1/constants":137,"./asn1/decoders":139,"./asn1/encoders":142,"bn.js":123,"dup":59}],131:[function(require,module,exports){
+},{"./EVP_BytesToKey":127,"browserify-aes":15,"dup":59}],131:[function(require,module,exports){
 arguments[4][60][0].apply(exports,arguments)
-},{"../asn1":130,"dup":60,"inherits":151,"vm":undefined}],132:[function(require,module,exports){
+},{"./aesid.json":128,"./asn1":129,"./fixProc":130,"browserify-aes":15,"dup":60,"pbkdf2":122}],132:[function(require,module,exports){
 arguments[4][61][0].apply(exports,arguments)
-},{"../base":133,"buffer":undefined,"dup":61,"inherits":151}],133:[function(require,module,exports){
+},{"./asn1/api":133,"./asn1/base":135,"./asn1/constants":139,"./asn1/decoders":141,"./asn1/encoders":144,"bn.js":125,"dup":61}],133:[function(require,module,exports){
 arguments[4][62][0].apply(exports,arguments)
-},{"./buffer":132,"./node":134,"./reporter":135,"dup":62}],134:[function(require,module,exports){
+},{"../asn1":132,"dup":62,"inherits":153,"vm":undefined}],134:[function(require,module,exports){
 arguments[4][63][0].apply(exports,arguments)
-},{"../base":133,"dup":63,"minimalistic-assert":144}],135:[function(require,module,exports){
+},{"../base":135,"buffer":undefined,"dup":63,"inherits":153}],135:[function(require,module,exports){
 arguments[4][64][0].apply(exports,arguments)
-},{"dup":64,"inherits":151}],136:[function(require,module,exports){
+},{"./buffer":134,"./node":136,"./reporter":137,"dup":64}],136:[function(require,module,exports){
 arguments[4][65][0].apply(exports,arguments)
-},{"../constants":137,"dup":65}],137:[function(require,module,exports){
+},{"../base":135,"dup":65,"minimalistic-assert":146}],137:[function(require,module,exports){
 arguments[4][66][0].apply(exports,arguments)
-},{"./der":136,"dup":66}],138:[function(require,module,exports){
+},{"dup":66,"inherits":153}],138:[function(require,module,exports){
 arguments[4][67][0].apply(exports,arguments)
-},{"../../asn1":130,"dup":67,"inherits":151}],139:[function(require,module,exports){
+},{"../constants":139,"dup":67}],139:[function(require,module,exports){
 arguments[4][68][0].apply(exports,arguments)
-},{"./der":138,"./pem":140,"dup":68}],140:[function(require,module,exports){
+},{"./der":138,"dup":68}],140:[function(require,module,exports){
 arguments[4][69][0].apply(exports,arguments)
-},{"../../asn1":130,"./der":138,"buffer":undefined,"dup":69,"inherits":151}],141:[function(require,module,exports){
+},{"../../asn1":132,"dup":69,"inherits":153}],141:[function(require,module,exports){
 arguments[4][70][0].apply(exports,arguments)
-},{"../../asn1":130,"buffer":undefined,"dup":70,"inherits":151}],142:[function(require,module,exports){
+},{"./der":140,"./pem":142,"dup":70}],142:[function(require,module,exports){
 arguments[4][71][0].apply(exports,arguments)
-},{"./der":141,"./pem":143,"dup":71}],143:[function(require,module,exports){
+},{"../../asn1":132,"./der":140,"buffer":undefined,"dup":71,"inherits":153}],143:[function(require,module,exports){
 arguments[4][72][0].apply(exports,arguments)
-},{"../../asn1":130,"./der":141,"buffer":undefined,"dup":72,"inherits":151}],144:[function(require,module,exports){
+},{"../../asn1":132,"buffer":undefined,"dup":72,"inherits":153}],144:[function(require,module,exports){
 arguments[4][73][0].apply(exports,arguments)
-},{"dup":73}],145:[function(require,module,exports){
+},{"./der":143,"./pem":145,"dup":73}],145:[function(require,module,exports){
+arguments[4][74][0].apply(exports,arguments)
+},{"../../asn1":132,"./der":143,"buffer":undefined,"dup":74,"inherits":153}],146:[function(require,module,exports){
+arguments[4][75][0].apply(exports,arguments)
+},{"dup":75}],147:[function(require,module,exports){
 var parseKeys = require('parse-asn1');
 var mgf = require('./mgf');
 var xor = require('./xor');
@@ -14395,7 +14458,7 @@ function compare(a, b){
   }
   return dif;
 }
-},{"./mgf":122,"./withPublic":147,"./xor":148,"bn.js":123,"browserify-rsa":124,"create-hash":100,"parse-asn1":129}],146:[function(require,module,exports){
+},{"./mgf":124,"./withPublic":149,"./xor":150,"bn.js":125,"browserify-rsa":126,"create-hash":102,"parse-asn1":131}],148:[function(require,module,exports){
 var parseKeys = require('parse-asn1');
 var randomBytes = require('randombytes');
 var createHash = require('create-hash');
@@ -14491,7 +14554,7 @@ function nonZero(len, crypto) {
   }
   return out;
 }
-},{"./mgf":122,"./withPublic":147,"./xor":148,"bn.js":123,"browserify-rsa":124,"create-hash":100,"parse-asn1":129,"randombytes":149}],147:[function(require,module,exports){
+},{"./mgf":124,"./withPublic":149,"./xor":150,"bn.js":125,"browserify-rsa":126,"create-hash":102,"parse-asn1":131,"randombytes":151}],149:[function(require,module,exports){
 var bn = require('bn.js');
 function withPublic(paddedMsg, key) {
   return new Buffer(paddedMsg
@@ -14502,7 +14565,7 @@ function withPublic(paddedMsg, key) {
 }
 
 module.exports = withPublic;
-},{"bn.js":123}],148:[function(require,module,exports){
+},{"bn.js":125}],150:[function(require,module,exports){
 module.exports = function xor(a, b) {
   var len = a.length;
   var i = -1;
@@ -14511,7 +14574,7 @@ module.exports = function xor(a, b) {
   }
   return a
 };
-},{}],149:[function(require,module,exports){
+},{}],151:[function(require,module,exports){
 'use strict';
 
 var crypto = global.crypto || global.msCrypto
@@ -14541,7 +14604,7 @@ function oldBrowser() {
     )
 }
 
-},{}],150:[function(require,module,exports){
+},{}],152:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -14844,7 +14907,7 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],151:[function(require,module,exports){
+},{}],153:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -14869,12 +14932,12 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],152:[function(require,module,exports){
+},{}],154:[function(require,module,exports){
 module.exports = Array.isArray || function (arr) {
   return Object.prototype.toString.call(arr) == '[object Array]';
 };
 
-},{}],153:[function(require,module,exports){
+},{}],155:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -15100,7 +15163,7 @@ var substr = 'ab'.substr(-1) === 'b'
     }
 ;
 
-},{}],154:[function(require,module,exports){
+},{}],156:[function(require,module,exports){
 /*! https://mths.be/punycode v1.3.2 by @mathias */
 ;(function(root) {
 
@@ -15632,7 +15695,7 @@ var substr = 'ab'.substr(-1) === 'b'
 
 }(this));
 
-},{}],155:[function(require,module,exports){
+},{}],157:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -15718,7 +15781,7 @@ var isArray = Array.isArray || function (xs) {
   return Object.prototype.toString.call(xs) === '[object Array]';
 };
 
-},{}],156:[function(require,module,exports){
+},{}],158:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -15805,16 +15868,16 @@ var objectKeys = Object.keys || function (obj) {
   return res;
 };
 
-},{}],157:[function(require,module,exports){
+},{}],159:[function(require,module,exports){
 'use strict';
 
 exports.decode = exports.parse = require('./decode');
 exports.encode = exports.stringify = require('./encode');
 
-},{"./decode":155,"./encode":156}],158:[function(require,module,exports){
+},{"./decode":157,"./encode":158}],160:[function(require,module,exports){
 module.exports = require("./lib/_stream_duplex.js")
 
-},{"./lib/_stream_duplex.js":159}],159:[function(require,module,exports){
+},{"./lib/_stream_duplex.js":161}],161:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -15905,7 +15968,7 @@ function forEach (xs, f) {
   }
 }
 
-},{"./_stream_readable":161,"./_stream_writable":163,"core-util-is":164,"inherits":151}],160:[function(require,module,exports){
+},{"./_stream_readable":163,"./_stream_writable":165,"core-util-is":166,"inherits":153}],162:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -15953,7 +16016,7 @@ PassThrough.prototype._transform = function(chunk, encoding, cb) {
   cb(null, chunk);
 };
 
-},{"./_stream_transform":162,"core-util-is":164,"inherits":151}],161:[function(require,module,exports){
+},{"./_stream_transform":164,"core-util-is":166,"inherits":153}],163:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -16906,7 +16969,7 @@ function indexOf (xs, x) {
   return -1;
 }
 
-},{"./_stream_duplex":159,"buffer":undefined,"core-util-is":164,"events":150,"inherits":151,"isarray":152,"stream":169,"string_decoder/":170,"util":8}],162:[function(require,module,exports){
+},{"./_stream_duplex":161,"buffer":undefined,"core-util-is":166,"events":152,"inherits":153,"isarray":154,"stream":171,"string_decoder/":172,"util":10}],164:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -17117,7 +17180,7 @@ function done(stream, er) {
   return stream.push(null);
 }
 
-},{"./_stream_duplex":159,"core-util-is":164,"inherits":151}],163:[function(require,module,exports){
+},{"./_stream_duplex":161,"core-util-is":166,"inherits":153}],165:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -17596,7 +17659,7 @@ function endWritable(stream, state, cb) {
   state.ended = true;
 }
 
-},{"./_stream_duplex":159,"buffer":undefined,"core-util-is":164,"inherits":151,"stream":169}],164:[function(require,module,exports){
+},{"./_stream_duplex":161,"buffer":undefined,"core-util-is":166,"inherits":153,"stream":171}],166:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -17704,10 +17767,10 @@ exports.isBuffer = isBuffer;
 function objectToString(o) {
   return Object.prototype.toString.call(o);
 }
-},{}],165:[function(require,module,exports){
+},{}],167:[function(require,module,exports){
 module.exports = require("./lib/_stream_passthrough.js")
 
-},{"./lib/_stream_passthrough.js":160}],166:[function(require,module,exports){
+},{"./lib/_stream_passthrough.js":162}],168:[function(require,module,exports){
 exports = module.exports = require('./lib/_stream_readable.js');
 exports.Stream = require('stream');
 exports.Readable = exports;
@@ -17716,13 +17779,13 @@ exports.Duplex = require('./lib/_stream_duplex.js');
 exports.Transform = require('./lib/_stream_transform.js');
 exports.PassThrough = require('./lib/_stream_passthrough.js');
 
-},{"./lib/_stream_duplex.js":159,"./lib/_stream_passthrough.js":160,"./lib/_stream_readable.js":161,"./lib/_stream_transform.js":162,"./lib/_stream_writable.js":163,"stream":169}],167:[function(require,module,exports){
+},{"./lib/_stream_duplex.js":161,"./lib/_stream_passthrough.js":162,"./lib/_stream_readable.js":163,"./lib/_stream_transform.js":164,"./lib/_stream_writable.js":165,"stream":171}],169:[function(require,module,exports){
 module.exports = require("./lib/_stream_transform.js")
 
-},{"./lib/_stream_transform.js":162}],168:[function(require,module,exports){
+},{"./lib/_stream_transform.js":164}],170:[function(require,module,exports){
 module.exports = require("./lib/_stream_writable.js")
 
-},{"./lib/_stream_writable.js":163}],169:[function(require,module,exports){
+},{"./lib/_stream_writable.js":165}],171:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -17851,7 +17914,7 @@ Stream.prototype.pipe = function(dest, options) {
   return dest;
 };
 
-},{"events":150,"inherits":151,"readable-stream/duplex.js":158,"readable-stream/passthrough.js":165,"readable-stream/readable.js":166,"readable-stream/transform.js":167,"readable-stream/writable.js":168}],170:[function(require,module,exports){
+},{"events":152,"inherits":153,"readable-stream/duplex.js":160,"readable-stream/passthrough.js":167,"readable-stream/readable.js":168,"readable-stream/transform.js":169,"readable-stream/writable.js":170}],172:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -18074,7 +18137,7 @@ function base64DetectIncompleteChar(buffer) {
   this.charLength = this.charReceived ? 3 : 0;
 }
 
-},{"buffer":undefined}],171:[function(require,module,exports){
+},{"buffer":undefined}],173:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -18783,14 +18846,14 @@ function isNullOrUndefined(arg) {
   return  arg == null;
 }
 
-},{"punycode":154,"querystring":157}],172:[function(require,module,exports){
+},{"punycode":156,"querystring":159}],174:[function(require,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],173:[function(require,module,exports){
+},{}],175:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -19378,7 +19441,7 @@ function hasOwnProperty(obj, prop) {
   return Object.prototype.hasOwnProperty.call(obj, prop);
 }
 
-},{"./support/isBuffer":172,"inherits":151}],174:[function(require,module,exports){
+},{"./support/isBuffer":174,"inherits":153}],176:[function(require,module,exports){
 (function () {
   var validator = new RegExp("^[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}$", "i");
 
@@ -19443,7 +19506,7 @@ function hasOwnProperty(obj, prop) {
   }
 })();
 
-},{}],175:[function(require,module,exports){
+},{}],177:[function(require,module,exports){
 //! moment.js
 //! version : 2.10.6
 //! authors : Tim Wood, Iskren Chernev, Moment.js contributors
@@ -22639,7 +22702,7 @@ function hasOwnProperty(obj, prop) {
     return _moment;
 
 }));
-},{}],176:[function(require,module,exports){
+},{}],178:[function(require,module,exports){
 /**
  * So far all this does is parse app key and return it, 
  * but one day it might do more.
@@ -22650,7 +22713,7 @@ var parseAppKey = require('./parse-app-key');
 module.exports = function(context) {
   return parseAppKey(context.apiContext.appKey);
 };
-},{"./parse-app-key":177}],177:[function(require,module,exports){
+},{"./parse-app-key":179}],179:[function(require,module,exports){
 /**
  * This is a pretty naive implementation for now,
  * but since AppDev validates this pretty stringently,
@@ -22665,7 +22728,7 @@ module.exports = function(key) {
     version: [parts[2],parts[3],parts[4]].join('.')
   };
 }
-},{}],178:[function(require,module,exports){
+},{}],180:[function(require,module,exports){
 var extend = require('./utils/tiny-extend'),
     sub = require('./utils/sub'),
     constants = require('./constants'),
@@ -22736,7 +22799,7 @@ extend(Client, {
 // });
 
 module.exports = Client;
-},{"./constants":187,"./plugins/in-memory-auth-cache":196,"./utils/get-config":200,"./utils/make-method":201,"./utils/normalize-context":203,"./utils/sub":209,"./utils/tiny-extend":210}],179:[function(require,module,exports){
+},{"./constants":189,"./plugins/in-memory-auth-cache":198,"./utils/get-config":202,"./utils/make-method":203,"./utils/normalize-context":205,"./utils/sub":211,"./utils/tiny-extend":212}],181:[function(require,module,exports){
 
 
 //------------------------------------------------------------------------------
@@ -22805,7 +22868,7 @@ module.exports = Client.sub({
 	})
 });
 
-},{"../../client":178}],180:[function(require,module,exports){
+},{"../../client":180}],182:[function(require,module,exports){
 
 
 //------------------------------------------------------------------------------
@@ -22830,7 +22893,7 @@ module.exports = Client.sub({
 	})
 });
 
-},{"../../../client":178}],181:[function(require,module,exports){
+},{"../../../client":180}],183:[function(require,module,exports){
 
 
 //------------------------------------------------------------------------------
@@ -22863,7 +22926,7 @@ module.exports = Client.sub({
 	})
 });
 
-},{"../../../../client":178}],182:[function(require,module,exports){
+},{"../../../../client":180}],184:[function(require,module,exports){
 
 
 //------------------------------------------------------------------------------
@@ -22888,7 +22951,7 @@ module.exports = Client.sub({
 	})
 });
 
-},{"../../../client":178}],183:[function(require,module,exports){
+},{"../../../client":180}],185:[function(require,module,exports){
 
 
 //------------------------------------------------------------------------------
@@ -22917,7 +22980,7 @@ module.exports = Client.sub({
 	})
 });
 
-},{"../../../client":178}],184:[function(require,module,exports){
+},{"../../../client":180}],186:[function(require,module,exports){
 
 
 //------------------------------------------------------------------------------
@@ -22946,7 +23009,7 @@ module.exports = Client.sub({
 	})
 });
 
-},{"../../../client":178}],185:[function(require,module,exports){
+},{"../../../client":180}],187:[function(require,module,exports){
 
 
 //------------------------------------------------------------------------------
@@ -22975,7 +23038,7 @@ module.exports = Client.sub({
 	})
 });
 
-},{"../../../client":178}],186:[function(require,module,exports){
+},{"../../../client":180}],188:[function(require,module,exports){
 
 
 //------------------------------------------------------------------------------
@@ -22996,7 +23059,7 @@ module.exports = Client.sub({
 	})
 });
 
-},{"../../client":178}],187:[function(require,module,exports){
+},{"../../client":180}],189:[function(require,module,exports){
 var version = require('./version'),
     DEVELOPER = 1,
     ADMINUSER = 2,
@@ -23056,7 +23119,7 @@ module.exports = {
   version: version.current
 };
 
-},{"./version":212}],188:[function(require,module,exports){
+},{"./version":214}],190:[function(require,module,exports){
 /*global unescape, module, define, window, global*/
 
 /*
@@ -23943,7 +24006,7 @@ var UriTemplate = (function () {
     }
 ));
 
-},{}],189:[function(require,module,exports){
+},{}],191:[function(require,module,exports){
 /** @license MIT License (c) copyright 2010-2014 original author or authors */
 /** @author Brian Cavalier */
 /** @author John Hann */
@@ -23958,7 +24021,7 @@ module.exports = typeof global != 'undefined' ? (global.Promise = PromiseConstru
 	           : typeof self   != 'undefined' ? (self.Promise   = PromiseConstructor)
 	           : PromiseConstructor;
 
-},{"../lib/Promise":190,"../lib/decorators/unhandledRejection":192}],190:[function(require,module,exports){
+},{"../lib/Promise":192,"../lib/decorators/unhandledRejection":194}],192:[function(require,module,exports){
 /** @license MIT License (c) copyright 2010-2014 original author or authors */
 /** @author Brian Cavalier */
 /** @author John Hann */
@@ -23977,7 +24040,7 @@ define(function (require) {
 });
 })(typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); });
 
-},{"./Scheduler":191,"./env":193,"./makePromise":195}],191:[function(require,module,exports){
+},{"./Scheduler":193,"./env":195,"./makePromise":197}],193:[function(require,module,exports){
 /** @license MIT License (c) copyright 2010-2014 original author or authors */
 /** @author Brian Cavalier */
 /** @author John Hann */
@@ -24059,7 +24122,7 @@ define(function() {
 });
 }(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
 
-},{}],192:[function(require,module,exports){
+},{}],194:[function(require,module,exports){
 /** @license MIT License (c) copyright 2010-2014 original author or authors */
 /** @author Brian Cavalier */
 /** @author John Hann */
@@ -24147,7 +24210,7 @@ define(function(require) {
 });
 }(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(require); }));
 
-},{"../env":193,"../format":194}],193:[function(require,module,exports){
+},{"../env":195,"../format":196}],195:[function(require,module,exports){
 /** @license MIT License (c) copyright 2010-2014 original author or authors */
 /** @author Brian Cavalier */
 /** @author John Hann */
@@ -24222,7 +24285,7 @@ define(function(require) {
 });
 }(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(require); }));
 
-},{}],194:[function(require,module,exports){
+},{}],196:[function(require,module,exports){
 /** @license MIT License (c) copyright 2010-2014 original author or authors */
 /** @author Brian Cavalier */
 /** @author John Hann */
@@ -24280,7 +24343,7 @@ define(function() {
 });
 }(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
 
-},{}],195:[function(require,module,exports){
+},{}],197:[function(require,module,exports){
 /** @license MIT License (c) copyright 2010-2014 original author or authors */
 /** @author Brian Cavalier */
 /** @author John Hann */
@@ -25209,7 +25272,7 @@ define(function() {
 });
 }(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
 
-},{}],196:[function(require,module,exports){
+},{}],198:[function(require,module,exports){
 var assert = require('assert');
 
 function isExpired(ticket) {
@@ -25264,7 +25327,7 @@ var InMemoryAuthCache = module.exports = function InMemoryAuthCache() {
     constructor: InMemoryAuthCache
   };
 };
-},{"assert":7}],197:[function(require,module,exports){
+},{"assert":9}],199:[function(require,module,exports){
 /* global Promise */
 'use strict';
 var constants = require('../constants'),
@@ -25386,7 +25449,7 @@ var AuthProvider = {
 
 module.exports = AuthProvider;
 
-},{"../clients/platform/adminuser/tenantAdminUserAuthTicket":183,"../clients/platform/applications/authTicket":184,"../clients/platform/developer/developerAdminUserAuthTicket":185,"../constants":187,"./auth-ticket":198,"when/es6-shim/Promise.browserify-es6":189}],198:[function(require,module,exports){
+},{"../clients/platform/adminuser/tenantAdminUserAuthTicket":185,"../clients/platform/applications/authTicket":186,"../clients/platform/developer/developerAdminUserAuthTicket":187,"../constants":189,"./auth-ticket":200,"when/es6-shim/Promise.browserify-es6":191}],200:[function(require,module,exports){
 
 /**
  * The authentication ticket used to authenticate anything.
@@ -25407,7 +25470,7 @@ function AuthTicket(json) {
 }
 
 module.exports = AuthTicket;
-},{}],199:[function(require,module,exports){
+},{}],201:[function(require,module,exports){
 var extend = require('./tiny-extend');
 var util = require('util');
 module.exports = function errorify(res, additions) {
@@ -25448,7 +25511,7 @@ function formatDetails(deets) {
     return " " + label + ": " + deet;
   }).join('\n') + '\n';
 }
-},{"./tiny-extend":210,"util":173}],200:[function(require,module,exports){
+},{"./tiny-extend":212,"util":175}],202:[function(require,module,exports){
 // BEGIN INIT
 var fs = require('fs');
 var findup = require('./tiny-findup');
@@ -25483,7 +25546,7 @@ module.exports = function getConfig() {
   return conf;
 };
 
-},{"./tiny-findup":211,"fs":undefined}],201:[function(require,module,exports){
+},{"./tiny-findup":213,"fs":undefined}],203:[function(require,module,exports){
 'use strict';
 var extend = require('./tiny-extend'),
     request = require('./request'),
@@ -25549,7 +25612,7 @@ module.exports = function(config) {
 };
 
 
-},{"./make-url":202,"./prerequisite-manager":205,"./promise-pipeline":206,"./request":207,"./tiny-extend":210}],202:[function(require,module,exports){
+},{"./make-url":204,"./prerequisite-manager":207,"./promise-pipeline":208,"./request":209,"./tiny-extend":212}],204:[function(require,module,exports){
 'use strict';
 var uritemplate = require('uritemplate'),
 extend = require('./tiny-extend');
@@ -25602,7 +25665,7 @@ module.exports = function makeUrl(client, tpt, body) {
   };
 };
 
-},{"./tiny-extend":210,"uritemplate":188}],203:[function(require,module,exports){
+},{"./tiny-extend":212,"uritemplate":190}],205:[function(require,module,exports){
 var extend = require('./tiny-extend');
 
 var priorities = {
@@ -25670,14 +25733,14 @@ module.exports = function(context) {
 //     return [older, newer];
 //   }, contextPair);
 // }
-},{"./tiny-extend":210}],204:[function(require,module,exports){
+},{"./tiny-extend":212}],206:[function(require,module,exports){
 'use strict';
 var reISO = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2}(?:\.\d*))(?:Z|(\+|-)([\d|:]*))?$/;
 module.exports = function parseDate(key, value) {
   return (typeof value === 'string' && reISO.exec(value)) ? new Date(value) : value;
 };
 
-},{}],205:[function(require,module,exports){
+},{}],207:[function(require,module,exports){
 var AuthProvider = require('../security/auth-provider'),
     scopes = require('../constants').scopes;
 
@@ -25788,7 +25851,7 @@ function getTenantInfo(id) {
 module.exports = {
   getTasks: getTasks
 };
-},{"../clients/platform/tenant":186,"../constants":187,"../security/auth-provider":197}],206:[function(require,module,exports){
+},{"../clients/platform/tenant":188,"../constants":189,"../security/auth-provider":199}],208:[function(require,module,exports){
 /* global Promise */
 require('when/es6-shim/Promise.browserify-es6');
 
@@ -25798,7 +25861,7 @@ module.exports = function promisePipeline(tasks) {
     return p.then(task);
   }, Promise.resolve());
 };
-},{"when/es6-shim/Promise.browserify-es6":189}],207:[function(require,module,exports){
+},{"when/es6-shim/Promise.browserify-es6":191}],209:[function(require,module,exports){
 /* global Promise */
 var constants = require('../constants');
 var extend = require('./tiny-extend');
@@ -25912,7 +25975,7 @@ module.exports = function(options, transform) {
     request.end();
   });
 };
-},{"../constants":187,"./errorify":199,"./parse-json-dates":204,"./stream-to-callback":208,"./tiny-extend":210,"http":undefined,"https":undefined,"path":153,"url":171,"when/es6-shim/Promise.browserify-es6":189}],208:[function(require,module,exports){
+},{"../constants":189,"./errorify":201,"./parse-json-dates":206,"./stream-to-callback":210,"./tiny-extend":212,"http":undefined,"https":undefined,"path":155,"url":173,"when/es6-shim/Promise.browserify-es6":191}],210:[function(require,module,exports){
 module.exports = function streamToCallback(stream, cb) {
   var buf = '';
   stream.setEncoding('utf8');
@@ -25924,7 +25987,7 @@ module.exports = function streamToCallback(stream, cb) {
     cb(null, buf);
   });
 };
-},{}],209:[function(require,module,exports){
+},{}],211:[function(require,module,exports){
 var util = require('util'),
     extend = require('./tiny-extend');
 
@@ -25942,7 +26005,7 @@ module.exports = function sub(cons, proto) {
   if (proto) extend(child.prototype, proto);
   return child;
 };
-},{"./tiny-extend":210,"util":173}],210:[function(require,module,exports){
+},{"./tiny-extend":212,"util":175}],212:[function(require,module,exports){
 module.exports = function extend(target) {
   return Array.prototype.slice.call(arguments,1).reduce(function(out, next) {
     if (next && typeof next === "object") {
@@ -25953,7 +26016,7 @@ module.exports = function extend(target) {
     return out;
   }, target);
 };
-},{}],211:[function(require,module,exports){
+},{}],213:[function(require,module,exports){
 var path = require('path');
 var fs = require('fs');
 
@@ -25969,11 +26032,11 @@ module.exports = function findup(filename) {
   }
   return exists && maybeFile;
 };
-},{"fs":undefined,"path":153}],212:[function(require,module,exports){
+},{"fs":undefined,"path":155}],214:[function(require,module,exports){
 module.exports = {
   current: "1.18.15223.0"
 };
-},{}],213:[function(require,module,exports){
+},{}],215:[function(require,module,exports){
 var createHash = require('crypto').createHash;
 
 function get_header(header, credentials, opts) {
@@ -26081,7 +26144,7 @@ module.exports = {
   digest : digest.generate
 }
 
-},{"crypto":9}],214:[function(require,module,exports){
+},{"crypto":11}],216:[function(require,module,exports){
 //
 //  Simple cookie handling implementation based on the standard RFC 6265.
 //  This module just has two functionalities:
@@ -26164,7 +26227,7 @@ exports.read = parseSetCookieHeader;
 // writes a cookie string header
 exports.write = writeCookieString;
 
-},{}],215:[function(require,module,exports){
+},{}],217:[function(require,module,exports){
 var iconv,
     inherits  = require('util').inherits,
     stream    = require('stream');
@@ -26219,7 +26282,7 @@ module.exports = function(charset) {
     return new stream.PassThrough;
 }
 
-},{"iconv-lite":241,"stream":169,"util":173}],216:[function(require,module,exports){
+},{"iconv-lite":243,"stream":171,"util":175}],218:[function(require,module,exports){
 var readFile = require('fs').readFile,
     basename = require('path').basename;
 
@@ -26317,7 +26380,7 @@ function flatten(object, into, prefix) {
   return into;
 }
 
-},{"fs":undefined,"path":153}],217:[function(require,module,exports){
+},{"fs":undefined,"path":155}],219:[function(require,module,exports){
 //////////////////////////////////////////
 // Needle -- Node.js HTTP Client
 // Written by Tomás Pollak <tomas@forkhq.com>
@@ -26912,7 +26975,7 @@ exports.request = function(method, uri, data, opts, callback) {
   return new Needle(method, uri, data, opts, callback).start();
 };
 
-},{"./auth":213,"./cookies":214,"./decoder":215,"./multipart":216,"./parsers":218,"./querystring":219,"debug":220,"fs":undefined,"http":undefined,"https":undefined,"stream":169,"url":171,"zlib":undefined}],218:[function(require,module,exports){
+},{"./auth":215,"./cookies":216,"./decoder":217,"./multipart":218,"./parsers":220,"./querystring":221,"debug":222,"fs":undefined,"http":undefined,"https":undefined,"stream":171,"url":173,"zlib":undefined}],220:[function(require,module,exports){
 //////////////////////////////////////////
 // Defines mappings between content-type
 // and the appropriate parsers.
@@ -26982,7 +27045,7 @@ try {
 
 } catch(e) { /* xml2js not found */ }
 
-},{"stream":169,"xml2js":245}],219:[function(require,module,exports){
+},{"stream":171,"xml2js":247}],221:[function(require,module,exports){
 // based on the qs module, but handles null objects as expected
 // fixes by Tomas Pollak.
 
@@ -27029,7 +27092,7 @@ function stringifyObject(obj, prefix) {
 
 exports.build = stringify;
 
-},{}],220:[function(require,module,exports){
+},{}],222:[function(require,module,exports){
 
 /**
  * This is the web browser implementation of `debug()`.
@@ -27199,7 +27262,7 @@ function localstorage(){
   } catch (e) {}
 }
 
-},{"./debug":221}],221:[function(require,module,exports){
+},{"./debug":223}],223:[function(require,module,exports){
 
 /**
  * This is the common logic for both the Node.js and web browser
@@ -27398,7 +27461,7 @@ function coerce(val) {
   return val;
 }
 
-},{"ms":222}],222:[function(require,module,exports){
+},{"ms":224}],224:[function(require,module,exports){
 /**
  * Helpers.
  */
@@ -27525,7 +27588,7 @@ function plural(ms, n, name) {
   return Math.ceil(ms / n) + ' ' + name + 's';
 }
 
-},{}],223:[function(require,module,exports){
+},{}],225:[function(require,module,exports){
 "use strict"
 
 // Multibyte codec. In this scheme, a character is represented by 1 or more bytes.
@@ -28081,7 +28144,7 @@ function findIdx(table, val) {
 }
 
 
-},{}],224:[function(require,module,exports){
+},{}],226:[function(require,module,exports){
 "use strict"
 
 // Description of supported double byte encodings and aliases.
@@ -28253,7 +28316,7 @@ module.exports = {
 
 };
 
-},{"./tables/big5-added.json":230,"./tables/cp936.json":231,"./tables/cp949.json":232,"./tables/cp950.json":233,"./tables/eucjp.json":234,"./tables/gb18030-ranges.json":235,"./tables/gbk-added.json":236,"./tables/shiftjis.json":237}],225:[function(require,module,exports){
+},{"./tables/big5-added.json":232,"./tables/cp936.json":233,"./tables/cp949.json":234,"./tables/cp950.json":235,"./tables/eucjp.json":236,"./tables/gb18030-ranges.json":237,"./tables/gbk-added.json":238,"./tables/shiftjis.json":239}],227:[function(require,module,exports){
 "use strict"
 
 // Update this array if you add/rename/remove files in this directory.
@@ -28277,7 +28340,7 @@ for (var i = 0; i < modules.length; i++) {
             exports[enc] = module[enc];
 }
 
-},{"./dbcs-codec":223,"./dbcs-data":224,"./internal":226,"./sbcs-codec":227,"./sbcs-data":229,"./sbcs-data-generated":228,"./utf16":238,"./utf7":239}],226:[function(require,module,exports){
+},{"./dbcs-codec":225,"./dbcs-data":226,"./internal":228,"./sbcs-codec":229,"./sbcs-data":231,"./sbcs-data-generated":230,"./utf16":240,"./utf7":241}],228:[function(require,module,exports){
 "use strict"
 
 // Export Node.js internal encodings.
@@ -28398,7 +28461,7 @@ InternalEncoderCesu8.prototype.write = function(str) {
 InternalEncoderCesu8.prototype.end = function() {
 }
 
-},{"string_decoder":170}],227:[function(require,module,exports){
+},{"string_decoder":172}],229:[function(require,module,exports){
 "use strict"
 
 // Single-byte codec. Needs a 'chars' string parameter that contains 256 or 128 chars that
@@ -28472,7 +28535,7 @@ SBCSDecoder.prototype.write = function(buf) {
 SBCSDecoder.prototype.end = function() {
 }
 
-},{}],228:[function(require,module,exports){
+},{}],230:[function(require,module,exports){
 "use strict"
 
 // Generated data for sbcs codec. Don't edit manually. Regenerate using generation/gen-sbcs.js script.
@@ -28924,7 +28987,7 @@ module.exports = {
     "chars": "���������������������������������กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรฤลฦวศษสหฬอฮฯะัาำิีึืฺุู����฿เแโใไๅๆ็่้๊๋์ํ๎๏๐๑๒๓๔๕๖๗๘๙๚๛����"
   }
 }
-},{}],229:[function(require,module,exports){
+},{}],231:[function(require,module,exports){
 "use strict"
 
 // Manually added data to be used by sbcs codec in addition to generated one.
@@ -29095,7 +29158,7 @@ module.exports = {
 };
 
 
-},{}],230:[function(require,module,exports){
+},{}],232:[function(require,module,exports){
 module.exports=[
 ["8740","䏰䰲䘃䖦䕸𧉧䵷䖳𧲱䳢𧳅㮕䜶䝄䱇䱀𤊿𣘗𧍒𦺋𧃒䱗𪍑䝏䗚䲅𧱬䴇䪤䚡𦬣爥𥩔𡩣𣸆𣽡晍囻"],
 ["8767","綕夝𨮹㷴霴𧯯寛𡵞媤㘥𩺰嫑宷峼杮薓𩥅瑡璝㡵𡵓𣚞𦀡㻬"],
@@ -29219,7 +29282,7 @@ module.exports=[
 ["fea1","𤅟𤩹𨮏孆𨰃𡢞瓈𡦈甎瓩甞𨻙𡩋寗𨺬鎅畍畊畧畮𤾂㼄𤴓疎瑝疞疴瘂瘬癑癏癯癶𦏵皐臯㟸𦤑𦤎皡皥皷盌𦾟葢𥂝𥅽𡸜眞眦着撯𥈠睘𣊬瞯𨥤𨥨𡛁矴砉𡍶𤨒棊碯磇磓隥礮𥗠磗礴碱𧘌辸袄𨬫𦂃𢘜禆褀椂禀𥡗禝𧬹礼禩渪𧄦㺨秆𩄍秔"]
 ]
 
-},{}],231:[function(require,module,exports){
+},{}],233:[function(require,module,exports){
 module.exports=[
 ["0","\u0000",127,"€"],
 ["8140","丂丄丅丆丏丒丗丟丠両丣並丩丮丯丱丳丵丷丼乀乁乂乄乆乊乑乕乗乚乛乢乣乤乥乧乨乪",5,"乲乴",9,"乿",6,"亇亊"],
@@ -29485,7 +29548,7 @@ module.exports=[
 ["fe40","兀嗀﨎﨏﨑﨓﨔礼﨟蘒﨡﨣﨤﨧﨨﨩"]
 ]
 
-},{}],232:[function(require,module,exports){
+},{}],234:[function(require,module,exports){
 module.exports=[
 ["0","\u0000",127],
 ["8141","갂갃갅갆갋",4,"갘갞갟갡갢갣갥",6,"갮갲갳갴"],
@@ -29760,7 +29823,7 @@ module.exports=[
 ["fda1","爻肴酵驍侯候厚后吼喉嗅帿後朽煦珝逅勛勳塤壎焄熏燻薰訓暈薨喧暄煊萱卉喙毁彙徽揮暉煇諱輝麾休携烋畦虧恤譎鷸兇凶匈洶胸黑昕欣炘痕吃屹紇訖欠欽歆吸恰洽翕興僖凞喜噫囍姬嬉希憙憘戱晞曦熙熹熺犧禧稀羲詰"]
 ]
 
-},{}],233:[function(require,module,exports){
+},{}],235:[function(require,module,exports){
 module.exports=[
 ["0","\u0000",127],
 ["a140","　，、。．‧；：？！︰…‥﹐﹑﹒·﹔﹕﹖﹗｜–︱—︳╴︴﹏（）︵︶｛｝︷︸〔〕︹︺【】︻︼《》︽︾〈〉︿﹀「」﹁﹂『』﹃﹄﹙﹚"],
@@ -29939,7 +30002,7 @@ module.exports=[
 ["f9a1","龤灨灥糷虪蠾蠽蠿讞貜躩軉靋顳顴飌饡馫驤驦驧鬤鸕鸗齈戇欞爧虌躨钂钀钁驩驨鬮鸙爩虋讟钃鱹麷癵驫鱺鸝灩灪麤齾齉龘碁銹裏墻恒粧嫺╔╦╗╠╬╣╚╩╝╒╤╕╞╪╡╘╧╛╓╥╖╟╫╢╙╨╜║═╭╮╰╯▓"]
 ]
 
-},{}],234:[function(require,module,exports){
+},{}],236:[function(require,module,exports){
 module.exports=[
 ["0","\u0000",127],
 ["8ea1","｡",62],
@@ -30123,9 +30186,9 @@ module.exports=[
 ["8feda1","黸黿鼂鼃鼉鼏鼐鼑鼒鼔鼖鼗鼙鼚鼛鼟鼢鼦鼪鼫鼯鼱鼲鼴鼷鼹鼺鼼鼽鼿齁齃",4,"齓齕齖齗齘齚齝齞齨齩齭",4,"齳齵齺齽龏龐龑龒龔龖龗龞龡龢龣龥"]
 ]
 
-},{}],235:[function(require,module,exports){
+},{}],237:[function(require,module,exports){
 module.exports={"uChars":[128,165,169,178,184,216,226,235,238,244,248,251,253,258,276,284,300,325,329,334,364,463,465,467,469,471,473,475,477,506,594,610,712,716,730,930,938,962,970,1026,1104,1106,8209,8215,8218,8222,8231,8241,8244,8246,8252,8365,8452,8454,8458,8471,8482,8556,8570,8596,8602,8713,8720,8722,8726,8731,8737,8740,8742,8748,8751,8760,8766,8777,8781,8787,8802,8808,8816,8854,8858,8870,8896,8979,9322,9372,9548,9588,9616,9622,9634,9652,9662,9672,9676,9680,9702,9735,9738,9793,9795,11906,11909,11913,11917,11928,11944,11947,11951,11956,11960,11964,11979,12284,12292,12312,12319,12330,12351,12436,12447,12535,12543,12586,12842,12850,12964,13200,13215,13218,13253,13263,13267,13270,13384,13428,13727,13839,13851,14617,14703,14801,14816,14964,15183,15471,15585,16471,16736,17208,17325,17330,17374,17623,17997,18018,18212,18218,18301,18318,18760,18811,18814,18820,18823,18844,18848,18872,19576,19620,19738,19887,40870,59244,59336,59367,59413,59417,59423,59431,59437,59443,59452,59460,59478,59493,63789,63866,63894,63976,63986,64016,64018,64021,64025,64034,64037,64042,65074,65093,65107,65112,65127,65132,65375,65510,65536],"gbChars":[0,36,38,45,50,81,89,95,96,100,103,104,105,109,126,133,148,172,175,179,208,306,307,308,309,310,311,312,313,341,428,443,544,545,558,741,742,749,750,805,819,820,7922,7924,7925,7927,7934,7943,7944,7945,7950,8062,8148,8149,8152,8164,8174,8236,8240,8262,8264,8374,8380,8381,8384,8388,8390,8392,8393,8394,8396,8401,8406,8416,8419,8424,8437,8439,8445,8482,8485,8496,8521,8603,8936,8946,9046,9050,9063,9066,9076,9092,9100,9108,9111,9113,9131,9162,9164,9218,9219,11329,11331,11334,11336,11346,11361,11363,11366,11370,11372,11375,11389,11682,11686,11687,11692,11694,11714,11716,11723,11725,11730,11736,11982,11989,12102,12336,12348,12350,12384,12393,12395,12397,12510,12553,12851,12962,12973,13738,13823,13919,13933,14080,14298,14585,14698,15583,15847,16318,16434,16438,16481,16729,17102,17122,17315,17320,17402,17418,17859,17909,17911,17915,17916,17936,17939,17961,18664,18703,18814,18962,19043,33469,33470,33471,33484,33485,33490,33497,33501,33505,33513,33520,33536,33550,37845,37921,37948,38029,38038,38064,38065,38066,38069,38075,38076,38078,39108,39109,39113,39114,39115,39116,39265,39394,189000]}
-},{}],236:[function(require,module,exports){
+},{}],238:[function(require,module,exports){
 module.exports=[
 ["a140","",62],
 ["a180","",32],
@@ -30182,7 +30245,7 @@ module.exports=[
 ["fe80","䜣䜩䝼䞍⻊䥇䥺䥽䦂䦃䦅䦆䦟䦛䦷䦶䲣䲟䲠䲡䱷䲢䴓",6,"䶮",93]
 ]
 
-},{}],237:[function(require,module,exports){
+},{}],239:[function(require,module,exports){
 module.exports=[
 ["0","\u0000",128],
 ["a1","｡",62],
@@ -30309,7 +30372,7 @@ module.exports=[
 ["fc40","髜魵魲鮏鮱鮻鰀鵰鵫鶴鸙黑"]
 ]
 
-},{}],238:[function(require,module,exports){
+},{}],240:[function(require,module,exports){
 "use strict"
 
 // == UTF16-BE codec. ==========================================================
@@ -30485,7 +30548,7 @@ function detectEncoding(buf, defaultEncoding) {
 
 
 
-},{}],239:[function(require,module,exports){
+},{}],241:[function(require,module,exports){
 "use strict"
 
 // UTF-7 codec, according to https://tools.ietf.org/html/rfc2152
@@ -30776,7 +30839,7 @@ Utf7IMAPDecoder.prototype.end = function() {
 
 
 
-},{}],240:[function(require,module,exports){
+},{}],242:[function(require,module,exports){
 "use strict"
 
 var BOMChar = '\uFEFF';
@@ -30830,7 +30893,7 @@ StripBOMWrapper.prototype.end = function() {
 }
 
 
-},{}],241:[function(require,module,exports){
+},{}],243:[function(require,module,exports){
 "use strict"
 
 var bomHandling = require('./bom-handling'),
@@ -30973,7 +31036,7 @@ if (nodeVer) {
 }
 
 
-},{"../encodings":225,"./bom-handling":240,"./extend-node":8,"./streams":8}],242:[function(require,module,exports){
+},{"../encodings":227,"./bom-handling":242,"./extend-node":10,"./streams":10}],244:[function(require,module,exports){
 //     Underscore.js 1.8.3
 //     http://underscorejs.org
 //     (c) 2009-2015 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
@@ -32523,7 +32586,7 @@ if (nodeVer) {
   }
 }.call(this));
 
-},{}],243:[function(require,module,exports){
+},{}],245:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.3
 (function() {
   "use strict";
@@ -32541,7 +32604,7 @@ if (nodeVer) {
 
 }).call(this);
 
-},{"../lib/xml2js":245}],244:[function(require,module,exports){
+},{"../lib/xml2js":247}],246:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.3
 (function() {
   "use strict";
@@ -32577,7 +32640,7 @@ if (nodeVer) {
 
 }).call(this);
 
-},{}],245:[function(require,module,exports){
+},{}],247:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.3
 (function() {
   "use strict";
@@ -33093,7 +33156,7 @@ if (nodeVer) {
 
 }).call(this);
 
-},{"./bom":243,"./processors":244,"events":150,"sax":246,"xmlbuilder":263}],246:[function(require,module,exports){
+},{"./bom":245,"./processors":246,"events":152,"sax":248,"xmlbuilder":265}],248:[function(require,module,exports){
 // wrapper for non-node envs
 ;(function (sax) {
 
@@ -34525,7 +34588,7 @@ if (!String.fromCodePoint) {
 
 })(typeof exports === "undefined" ? sax = {} : exports);
 
-},{"stream":169,"string_decoder":170}],247:[function(require,module,exports){
+},{"stream":171,"string_decoder":172}],249:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLAttribute, create;
@@ -34559,7 +34622,7 @@ if (!String.fromCodePoint) {
 
 }).call(this);
 
-},{"lodash/object/create":317}],248:[function(require,module,exports){
+},{"lodash/object/create":319}],250:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLBuilder, XMLDeclaration, XMLDocType, XMLElement, XMLStringifier;
@@ -34630,7 +34693,7 @@ if (!String.fromCodePoint) {
 
 }).call(this);
 
-},{"./XMLDeclaration":255,"./XMLDocType":256,"./XMLElement":257,"./XMLStringifier":261}],249:[function(require,module,exports){
+},{"./XMLDeclaration":257,"./XMLDocType":258,"./XMLElement":259,"./XMLStringifier":263}],251:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLCData, XMLNode, create,
@@ -34681,7 +34744,7 @@ if (!String.fromCodePoint) {
 
 }).call(this);
 
-},{"./XMLNode":258,"lodash/object/create":317}],250:[function(require,module,exports){
+},{"./XMLNode":260,"lodash/object/create":319}],252:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLComment, XMLNode, create,
@@ -34732,7 +34795,7 @@ if (!String.fromCodePoint) {
 
 }).call(this);
 
-},{"./XMLNode":258,"lodash/object/create":317}],251:[function(require,module,exports){
+},{"./XMLNode":260,"lodash/object/create":319}],253:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLDTDAttList, create;
@@ -34806,7 +34869,7 @@ if (!String.fromCodePoint) {
 
 }).call(this);
 
-},{"lodash/object/create":317}],252:[function(require,module,exports){
+},{"lodash/object/create":319}],254:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLDTDElement, create, isArray;
@@ -34860,7 +34923,7 @@ if (!String.fromCodePoint) {
 
 }).call(this);
 
-},{"lodash/lang/isArray":309,"lodash/object/create":317}],253:[function(require,module,exports){
+},{"lodash/lang/isArray":311,"lodash/object/create":319}],255:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLDTDEntity, create, isObject;
@@ -34950,7 +35013,7 @@ if (!String.fromCodePoint) {
 
 }).call(this);
 
-},{"lodash/lang/isObject":313,"lodash/object/create":317}],254:[function(require,module,exports){
+},{"lodash/lang/isObject":315,"lodash/object/create":319}],256:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLDTDNotation, create;
@@ -35012,7 +35075,7 @@ if (!String.fromCodePoint) {
 
 }).call(this);
 
-},{"lodash/object/create":317}],255:[function(require,module,exports){
+},{"lodash/object/create":319}],257:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLDeclaration, XMLNode, create, isObject,
@@ -35087,7 +35150,7 @@ if (!String.fromCodePoint) {
 
 }).call(this);
 
-},{"./XMLNode":258,"lodash/lang/isObject":313,"lodash/object/create":317}],256:[function(require,module,exports){
+},{"./XMLNode":260,"lodash/lang/isObject":315,"lodash/object/create":319}],258:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLCData, XMLComment, XMLDTDAttList, XMLDTDElement, XMLDTDEntity, XMLDTDNotation, XMLDocType, XMLProcessingInstruction, create, isObject;
@@ -35281,7 +35344,7 @@ if (!String.fromCodePoint) {
 
 }).call(this);
 
-},{"./XMLCData":249,"./XMLComment":250,"./XMLDTDAttList":251,"./XMLDTDElement":252,"./XMLDTDEntity":253,"./XMLDTDNotation":254,"./XMLProcessingInstruction":259,"lodash/lang/isObject":313,"lodash/object/create":317}],257:[function(require,module,exports){
+},{"./XMLCData":251,"./XMLComment":252,"./XMLDTDAttList":253,"./XMLDTDElement":254,"./XMLDTDEntity":255,"./XMLDTDNotation":256,"./XMLProcessingInstruction":261,"lodash/lang/isObject":315,"lodash/object/create":319}],259:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLAttribute, XMLElement, XMLNode, XMLProcessingInstruction, create, every, isArray, isFunction, isObject,
@@ -35497,7 +35560,7 @@ if (!String.fromCodePoint) {
 
 }).call(this);
 
-},{"./XMLAttribute":247,"./XMLNode":258,"./XMLProcessingInstruction":259,"lodash/collection/every":265,"lodash/lang/isArray":309,"lodash/lang/isFunction":311,"lodash/lang/isObject":313,"lodash/object/create":317}],258:[function(require,module,exports){
+},{"./XMLAttribute":249,"./XMLNode":260,"./XMLProcessingInstruction":261,"lodash/collection/every":267,"lodash/lang/isArray":311,"lodash/lang/isFunction":313,"lodash/lang/isObject":315,"lodash/object/create":319}],260:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLCData, XMLComment, XMLDeclaration, XMLDocType, XMLElement, XMLNode, XMLRaw, XMLText, isArray, isEmpty, isFunction, isObject,
@@ -35833,7 +35896,7 @@ if (!String.fromCodePoint) {
 
 }).call(this);
 
-},{"./XMLCData":249,"./XMLComment":250,"./XMLDeclaration":255,"./XMLDocType":256,"./XMLElement":257,"./XMLRaw":260,"./XMLText":262,"lodash/lang/isArray":309,"lodash/lang/isEmpty":310,"lodash/lang/isFunction":311,"lodash/lang/isObject":313}],259:[function(require,module,exports){
+},{"./XMLCData":251,"./XMLComment":252,"./XMLDeclaration":257,"./XMLDocType":258,"./XMLElement":259,"./XMLRaw":262,"./XMLText":264,"lodash/lang/isArray":311,"lodash/lang/isEmpty":312,"lodash/lang/isFunction":313,"lodash/lang/isObject":315}],261:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLProcessingInstruction, create;
@@ -35886,7 +35949,7 @@ if (!String.fromCodePoint) {
 
 }).call(this);
 
-},{"lodash/object/create":317}],260:[function(require,module,exports){
+},{"lodash/object/create":319}],262:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLNode, XMLRaw, create,
@@ -35937,7 +36000,7 @@ if (!String.fromCodePoint) {
 
 }).call(this);
 
-},{"./XMLNode":258,"lodash/object/create":317}],261:[function(require,module,exports){
+},{"./XMLNode":260,"lodash/object/create":319}],263:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLStringifier,
@@ -36106,7 +36169,7 @@ if (!String.fromCodePoint) {
 
 }).call(this);
 
-},{}],262:[function(require,module,exports){
+},{}],264:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLNode, XMLText, create,
@@ -36157,7 +36220,7 @@ if (!String.fromCodePoint) {
 
 }).call(this);
 
-},{"./XMLNode":258,"lodash/object/create":317}],263:[function(require,module,exports){
+},{"./XMLNode":260,"lodash/object/create":319}],265:[function(require,module,exports){
 // Generated by CoffeeScript 1.9.1
 (function() {
   var XMLBuilder, assign;
@@ -36173,7 +36236,7 @@ if (!String.fromCodePoint) {
 
 }).call(this);
 
-},{"./XMLBuilder":248,"lodash/object/assign":316}],264:[function(require,module,exports){
+},{"./XMLBuilder":250,"lodash/object/assign":318}],266:[function(require,module,exports){
 /**
  * Gets the last element of `array`.
  *
@@ -36194,7 +36257,7 @@ function last(array) {
 
 module.exports = last;
 
-},{}],265:[function(require,module,exports){
+},{}],267:[function(require,module,exports){
 var arrayEvery = require('../internal/arrayEvery'),
     baseCallback = require('../internal/baseCallback'),
     baseEvery = require('../internal/baseEvery'),
@@ -36262,7 +36325,7 @@ function every(collection, predicate, thisArg) {
 
 module.exports = every;
 
-},{"../internal/arrayEvery":267,"../internal/baseCallback":271,"../internal/baseEvery":275,"../internal/isIterateeCall":300,"../lang/isArray":309}],266:[function(require,module,exports){
+},{"../internal/arrayEvery":269,"../internal/baseCallback":273,"../internal/baseEvery":277,"../internal/isIterateeCall":302,"../lang/isArray":311}],268:[function(require,module,exports){
 /** Used as the `TypeError` message for "Functions" methods. */
 var FUNC_ERROR_TEXT = 'Expected a function';
 
@@ -36322,7 +36385,7 @@ function restParam(func, start) {
 
 module.exports = restParam;
 
-},{}],267:[function(require,module,exports){
+},{}],269:[function(require,module,exports){
 /**
  * A specialized version of `_.every` for arrays without support for callback
  * shorthands and `this` binding.
@@ -36347,7 +36410,7 @@ function arrayEvery(array, predicate) {
 
 module.exports = arrayEvery;
 
-},{}],268:[function(require,module,exports){
+},{}],270:[function(require,module,exports){
 /**
  * A specialized version of `_.some` for arrays without support for callback
  * shorthands and `this` binding.
@@ -36372,7 +36435,7 @@ function arraySome(array, predicate) {
 
 module.exports = arraySome;
 
-},{}],269:[function(require,module,exports){
+},{}],271:[function(require,module,exports){
 var keys = require('../object/keys');
 
 /**
@@ -36406,7 +36469,7 @@ function assignWith(object, source, customizer) {
 
 module.exports = assignWith;
 
-},{"../object/keys":318}],270:[function(require,module,exports){
+},{"../object/keys":320}],272:[function(require,module,exports){
 var baseCopy = require('./baseCopy'),
     keys = require('../object/keys');
 
@@ -36427,7 +36490,7 @@ function baseAssign(object, source) {
 
 module.exports = baseAssign;
 
-},{"../object/keys":318,"./baseCopy":272}],271:[function(require,module,exports){
+},{"../object/keys":320,"./baseCopy":274}],273:[function(require,module,exports){
 var baseMatches = require('./baseMatches'),
     baseMatchesProperty = require('./baseMatchesProperty'),
     bindCallback = require('./bindCallback'),
@@ -36464,7 +36527,7 @@ function baseCallback(func, thisArg, argCount) {
 
 module.exports = baseCallback;
 
-},{"../utility/identity":321,"../utility/property":322,"./baseMatches":282,"./baseMatchesProperty":283,"./bindCallback":288}],272:[function(require,module,exports){
+},{"../utility/identity":323,"../utility/property":324,"./baseMatches":284,"./baseMatchesProperty":285,"./bindCallback":290}],274:[function(require,module,exports){
 /**
  * Copies properties of `source` to `object`.
  *
@@ -36489,7 +36552,7 @@ function baseCopy(source, props, object) {
 
 module.exports = baseCopy;
 
-},{}],273:[function(require,module,exports){
+},{}],275:[function(require,module,exports){
 var isObject = require('../lang/isObject');
 
 /**
@@ -36514,7 +36577,7 @@ var baseCreate = (function() {
 
 module.exports = baseCreate;
 
-},{"../lang/isObject":313}],274:[function(require,module,exports){
+},{"../lang/isObject":315}],276:[function(require,module,exports){
 var baseForOwn = require('./baseForOwn'),
     createBaseEach = require('./createBaseEach');
 
@@ -36531,7 +36594,7 @@ var baseEach = createBaseEach(baseForOwn);
 
 module.exports = baseEach;
 
-},{"./baseForOwn":277,"./createBaseEach":290}],275:[function(require,module,exports){
+},{"./baseForOwn":279,"./createBaseEach":292}],277:[function(require,module,exports){
 var baseEach = require('./baseEach');
 
 /**
@@ -36555,7 +36618,7 @@ function baseEvery(collection, predicate) {
 
 module.exports = baseEvery;
 
-},{"./baseEach":274}],276:[function(require,module,exports){
+},{"./baseEach":276}],278:[function(require,module,exports){
 var createBaseFor = require('./createBaseFor');
 
 /**
@@ -36574,7 +36637,7 @@ var baseFor = createBaseFor();
 
 module.exports = baseFor;
 
-},{"./createBaseFor":291}],277:[function(require,module,exports){
+},{"./createBaseFor":293}],279:[function(require,module,exports){
 var baseFor = require('./baseFor'),
     keys = require('../object/keys');
 
@@ -36593,7 +36656,7 @@ function baseForOwn(object, iteratee) {
 
 module.exports = baseForOwn;
 
-},{"../object/keys":318,"./baseFor":276}],278:[function(require,module,exports){
+},{"../object/keys":320,"./baseFor":278}],280:[function(require,module,exports){
 var toObject = require('./toObject');
 
 /**
@@ -36624,7 +36687,7 @@ function baseGet(object, path, pathKey) {
 
 module.exports = baseGet;
 
-},{"./toObject":306}],279:[function(require,module,exports){
+},{"./toObject":308}],281:[function(require,module,exports){
 var baseIsEqualDeep = require('./baseIsEqualDeep'),
     isObject = require('../lang/isObject'),
     isObjectLike = require('./isObjectLike');
@@ -36654,7 +36717,7 @@ function baseIsEqual(value, other, customizer, isLoose, stackA, stackB) {
 
 module.exports = baseIsEqual;
 
-},{"../lang/isObject":313,"./baseIsEqualDeep":280,"./isObjectLike":303}],280:[function(require,module,exports){
+},{"../lang/isObject":315,"./baseIsEqualDeep":282,"./isObjectLike":305}],282:[function(require,module,exports){
 var equalArrays = require('./equalArrays'),
     equalByTag = require('./equalByTag'),
     equalObjects = require('./equalObjects'),
@@ -36758,7 +36821,7 @@ function baseIsEqualDeep(object, other, equalFunc, customizer, isLoose, stackA, 
 
 module.exports = baseIsEqualDeep;
 
-},{"../lang/isArray":309,"../lang/isTypedArray":315,"./equalArrays":292,"./equalByTag":293,"./equalObjects":294}],281:[function(require,module,exports){
+},{"../lang/isArray":311,"../lang/isTypedArray":317,"./equalArrays":294,"./equalByTag":295,"./equalObjects":296}],283:[function(require,module,exports){
 var baseIsEqual = require('./baseIsEqual'),
     toObject = require('./toObject');
 
@@ -36812,7 +36875,7 @@ function baseIsMatch(object, matchData, customizer) {
 
 module.exports = baseIsMatch;
 
-},{"./baseIsEqual":279,"./toObject":306}],282:[function(require,module,exports){
+},{"./baseIsEqual":281,"./toObject":308}],284:[function(require,module,exports){
 var baseIsMatch = require('./baseIsMatch'),
     getMatchData = require('./getMatchData'),
     toObject = require('./toObject');
@@ -36844,7 +36907,7 @@ function baseMatches(source) {
 
 module.exports = baseMatches;
 
-},{"./baseIsMatch":281,"./getMatchData":296,"./toObject":306}],283:[function(require,module,exports){
+},{"./baseIsMatch":283,"./getMatchData":298,"./toObject":308}],285:[function(require,module,exports){
 var baseGet = require('./baseGet'),
     baseIsEqual = require('./baseIsEqual'),
     baseSlice = require('./baseSlice'),
@@ -36891,7 +36954,7 @@ function baseMatchesProperty(path, srcValue) {
 
 module.exports = baseMatchesProperty;
 
-},{"../array/last":264,"../lang/isArray":309,"./baseGet":278,"./baseIsEqual":279,"./baseSlice":286,"./isKey":301,"./isStrictComparable":304,"./toObject":306,"./toPath":307}],284:[function(require,module,exports){
+},{"../array/last":266,"../lang/isArray":311,"./baseGet":280,"./baseIsEqual":281,"./baseSlice":288,"./isKey":303,"./isStrictComparable":306,"./toObject":308,"./toPath":309}],286:[function(require,module,exports){
 /**
  * The base implementation of `_.property` without support for deep paths.
  *
@@ -36907,7 +36970,7 @@ function baseProperty(key) {
 
 module.exports = baseProperty;
 
-},{}],285:[function(require,module,exports){
+},{}],287:[function(require,module,exports){
 var baseGet = require('./baseGet'),
     toPath = require('./toPath');
 
@@ -36928,7 +36991,7 @@ function basePropertyDeep(path) {
 
 module.exports = basePropertyDeep;
 
-},{"./baseGet":278,"./toPath":307}],286:[function(require,module,exports){
+},{"./baseGet":280,"./toPath":309}],288:[function(require,module,exports){
 /**
  * The base implementation of `_.slice` without an iteratee call guard.
  *
@@ -36962,7 +37025,7 @@ function baseSlice(array, start, end) {
 
 module.exports = baseSlice;
 
-},{}],287:[function(require,module,exports){
+},{}],289:[function(require,module,exports){
 /**
  * Converts `value` to a string if it's not one. An empty string is returned
  * for `null` or `undefined` values.
@@ -36977,7 +37040,7 @@ function baseToString(value) {
 
 module.exports = baseToString;
 
-},{}],288:[function(require,module,exports){
+},{}],290:[function(require,module,exports){
 var identity = require('../utility/identity');
 
 /**
@@ -37018,7 +37081,7 @@ function bindCallback(func, thisArg, argCount) {
 
 module.exports = bindCallback;
 
-},{"../utility/identity":321}],289:[function(require,module,exports){
+},{"../utility/identity":323}],291:[function(require,module,exports){
 var bindCallback = require('./bindCallback'),
     isIterateeCall = require('./isIterateeCall'),
     restParam = require('../function/restParam');
@@ -37061,7 +37124,7 @@ function createAssigner(assigner) {
 
 module.exports = createAssigner;
 
-},{"../function/restParam":266,"./bindCallback":288,"./isIterateeCall":300}],290:[function(require,module,exports){
+},{"../function/restParam":268,"./bindCallback":290,"./isIterateeCall":302}],292:[function(require,module,exports){
 var getLength = require('./getLength'),
     isLength = require('./isLength'),
     toObject = require('./toObject');
@@ -37094,7 +37157,7 @@ function createBaseEach(eachFunc, fromRight) {
 
 module.exports = createBaseEach;
 
-},{"./getLength":295,"./isLength":302,"./toObject":306}],291:[function(require,module,exports){
+},{"./getLength":297,"./isLength":304,"./toObject":308}],293:[function(require,module,exports){
 var toObject = require('./toObject');
 
 /**
@@ -37123,7 +37186,7 @@ function createBaseFor(fromRight) {
 
 module.exports = createBaseFor;
 
-},{"./toObject":306}],292:[function(require,module,exports){
+},{"./toObject":308}],294:[function(require,module,exports){
 var arraySome = require('./arraySome');
 
 /**
@@ -37176,7 +37239,7 @@ function equalArrays(array, other, equalFunc, customizer, isLoose, stackA, stack
 
 module.exports = equalArrays;
 
-},{"./arraySome":268}],293:[function(require,module,exports){
+},{"./arraySome":270}],295:[function(require,module,exports){
 /** `Object#toString` result references. */
 var boolTag = '[object Boolean]',
     dateTag = '[object Date]',
@@ -37226,7 +37289,7 @@ function equalByTag(object, other, tag) {
 
 module.exports = equalByTag;
 
-},{}],294:[function(require,module,exports){
+},{}],296:[function(require,module,exports){
 var keys = require('../object/keys');
 
 /** Used for native method references. */
@@ -37295,7 +37358,7 @@ function equalObjects(object, other, equalFunc, customizer, isLoose, stackA, sta
 
 module.exports = equalObjects;
 
-},{"../object/keys":318}],295:[function(require,module,exports){
+},{"../object/keys":320}],297:[function(require,module,exports){
 var baseProperty = require('./baseProperty');
 
 /**
@@ -37312,7 +37375,7 @@ var getLength = baseProperty('length');
 
 module.exports = getLength;
 
-},{"./baseProperty":284}],296:[function(require,module,exports){
+},{"./baseProperty":286}],298:[function(require,module,exports){
 var isStrictComparable = require('./isStrictComparable'),
     pairs = require('../object/pairs');
 
@@ -37335,7 +37398,7 @@ function getMatchData(object) {
 
 module.exports = getMatchData;
 
-},{"../object/pairs":320,"./isStrictComparable":304}],297:[function(require,module,exports){
+},{"../object/pairs":322,"./isStrictComparable":306}],299:[function(require,module,exports){
 var isNative = require('../lang/isNative');
 
 /**
@@ -37353,7 +37416,7 @@ function getNative(object, key) {
 
 module.exports = getNative;
 
-},{"../lang/isNative":312}],298:[function(require,module,exports){
+},{"../lang/isNative":314}],300:[function(require,module,exports){
 var getLength = require('./getLength'),
     isLength = require('./isLength');
 
@@ -37370,7 +37433,7 @@ function isArrayLike(value) {
 
 module.exports = isArrayLike;
 
-},{"./getLength":295,"./isLength":302}],299:[function(require,module,exports){
+},{"./getLength":297,"./isLength":304}],301:[function(require,module,exports){
 /** Used to detect unsigned integer values. */
 var reIsUint = /^\d+$/;
 
@@ -37396,7 +37459,7 @@ function isIndex(value, length) {
 
 module.exports = isIndex;
 
-},{}],300:[function(require,module,exports){
+},{}],302:[function(require,module,exports){
 var isArrayLike = require('./isArrayLike'),
     isIndex = require('./isIndex'),
     isObject = require('../lang/isObject');
@@ -37426,7 +37489,7 @@ function isIterateeCall(value, index, object) {
 
 module.exports = isIterateeCall;
 
-},{"../lang/isObject":313,"./isArrayLike":298,"./isIndex":299}],301:[function(require,module,exports){
+},{"../lang/isObject":315,"./isArrayLike":300,"./isIndex":301}],303:[function(require,module,exports){
 var isArray = require('../lang/isArray'),
     toObject = require('./toObject');
 
@@ -37456,7 +37519,7 @@ function isKey(value, object) {
 
 module.exports = isKey;
 
-},{"../lang/isArray":309,"./toObject":306}],302:[function(require,module,exports){
+},{"../lang/isArray":311,"./toObject":308}],304:[function(require,module,exports){
 /**
  * Used as the [maximum length](http://ecma-international.org/ecma-262/6.0/#sec-number.max_safe_integer)
  * of an array-like value.
@@ -37478,7 +37541,7 @@ function isLength(value) {
 
 module.exports = isLength;
 
-},{}],303:[function(require,module,exports){
+},{}],305:[function(require,module,exports){
 /**
  * Checks if `value` is object-like.
  *
@@ -37492,7 +37555,7 @@ function isObjectLike(value) {
 
 module.exports = isObjectLike;
 
-},{}],304:[function(require,module,exports){
+},{}],306:[function(require,module,exports){
 var isObject = require('../lang/isObject');
 
 /**
@@ -37509,7 +37572,7 @@ function isStrictComparable(value) {
 
 module.exports = isStrictComparable;
 
-},{"../lang/isObject":313}],305:[function(require,module,exports){
+},{"../lang/isObject":315}],307:[function(require,module,exports){
 var isArguments = require('../lang/isArguments'),
     isArray = require('../lang/isArray'),
     isIndex = require('./isIndex'),
@@ -37552,7 +37615,7 @@ function shimKeys(object) {
 
 module.exports = shimKeys;
 
-},{"../lang/isArguments":308,"../lang/isArray":309,"../object/keysIn":319,"./isIndex":299,"./isLength":302}],306:[function(require,module,exports){
+},{"../lang/isArguments":310,"../lang/isArray":311,"../object/keysIn":321,"./isIndex":301,"./isLength":304}],308:[function(require,module,exports){
 var isObject = require('../lang/isObject');
 
 /**
@@ -37568,7 +37631,7 @@ function toObject(value) {
 
 module.exports = toObject;
 
-},{"../lang/isObject":313}],307:[function(require,module,exports){
+},{"../lang/isObject":315}],309:[function(require,module,exports){
 var baseToString = require('./baseToString'),
     isArray = require('../lang/isArray');
 
@@ -37598,7 +37661,7 @@ function toPath(value) {
 
 module.exports = toPath;
 
-},{"../lang/isArray":309,"./baseToString":287}],308:[function(require,module,exports){
+},{"../lang/isArray":311,"./baseToString":289}],310:[function(require,module,exports){
 var isArrayLike = require('../internal/isArrayLike'),
     isObjectLike = require('../internal/isObjectLike');
 
@@ -37634,7 +37697,7 @@ function isArguments(value) {
 
 module.exports = isArguments;
 
-},{"../internal/isArrayLike":298,"../internal/isObjectLike":303}],309:[function(require,module,exports){
+},{"../internal/isArrayLike":300,"../internal/isObjectLike":305}],311:[function(require,module,exports){
 var getNative = require('../internal/getNative'),
     isLength = require('../internal/isLength'),
     isObjectLike = require('../internal/isObjectLike');
@@ -37676,7 +37739,7 @@ var isArray = nativeIsArray || function(value) {
 
 module.exports = isArray;
 
-},{"../internal/getNative":297,"../internal/isLength":302,"../internal/isObjectLike":303}],310:[function(require,module,exports){
+},{"../internal/getNative":299,"../internal/isLength":304,"../internal/isObjectLike":305}],312:[function(require,module,exports){
 var isArguments = require('./isArguments'),
     isArray = require('./isArray'),
     isArrayLike = require('../internal/isArrayLike'),
@@ -37725,7 +37788,7 @@ function isEmpty(value) {
 
 module.exports = isEmpty;
 
-},{"../internal/isArrayLike":298,"../internal/isObjectLike":303,"../object/keys":318,"./isArguments":308,"./isArray":309,"./isFunction":311,"./isString":314}],311:[function(require,module,exports){
+},{"../internal/isArrayLike":300,"../internal/isObjectLike":305,"../object/keys":320,"./isArguments":310,"./isArray":311,"./isFunction":313,"./isString":316}],313:[function(require,module,exports){
 var isObject = require('./isObject');
 
 /** `Object#toString` result references. */
@@ -37765,7 +37828,7 @@ function isFunction(value) {
 
 module.exports = isFunction;
 
-},{"./isObject":313}],312:[function(require,module,exports){
+},{"./isObject":315}],314:[function(require,module,exports){
 var isFunction = require('./isFunction'),
     isObjectLike = require('../internal/isObjectLike');
 
@@ -37815,7 +37878,7 @@ function isNative(value) {
 
 module.exports = isNative;
 
-},{"../internal/isObjectLike":303,"./isFunction":311}],313:[function(require,module,exports){
+},{"../internal/isObjectLike":305,"./isFunction":313}],315:[function(require,module,exports){
 /**
  * Checks if `value` is the [language type](https://es5.github.io/#x8) of `Object`.
  * (e.g. arrays, functions, objects, regexes, `new Number(0)`, and `new String('')`)
@@ -37845,7 +37908,7 @@ function isObject(value) {
 
 module.exports = isObject;
 
-},{}],314:[function(require,module,exports){
+},{}],316:[function(require,module,exports){
 var isObjectLike = require('../internal/isObjectLike');
 
 /** `Object#toString` result references. */
@@ -37882,7 +37945,7 @@ function isString(value) {
 
 module.exports = isString;
 
-},{"../internal/isObjectLike":303}],315:[function(require,module,exports){
+},{"../internal/isObjectLike":305}],317:[function(require,module,exports){
 var isLength = require('../internal/isLength'),
     isObjectLike = require('../internal/isObjectLike');
 
@@ -37958,7 +38021,7 @@ function isTypedArray(value) {
 
 module.exports = isTypedArray;
 
-},{"../internal/isLength":302,"../internal/isObjectLike":303}],316:[function(require,module,exports){
+},{"../internal/isLength":304,"../internal/isObjectLike":305}],318:[function(require,module,exports){
 var assignWith = require('../internal/assignWith'),
     baseAssign = require('../internal/baseAssign'),
     createAssigner = require('../internal/createAssigner');
@@ -38003,7 +38066,7 @@ var assign = createAssigner(function(object, source, customizer) {
 
 module.exports = assign;
 
-},{"../internal/assignWith":269,"../internal/baseAssign":270,"../internal/createAssigner":289}],317:[function(require,module,exports){
+},{"../internal/assignWith":271,"../internal/baseAssign":272,"../internal/createAssigner":291}],319:[function(require,module,exports){
 var baseAssign = require('../internal/baseAssign'),
     baseCreate = require('../internal/baseCreate'),
     isIterateeCall = require('../internal/isIterateeCall');
@@ -38052,7 +38115,7 @@ function create(prototype, properties, guard) {
 
 module.exports = create;
 
-},{"../internal/baseAssign":270,"../internal/baseCreate":273,"../internal/isIterateeCall":300}],318:[function(require,module,exports){
+},{"../internal/baseAssign":272,"../internal/baseCreate":275,"../internal/isIterateeCall":302}],320:[function(require,module,exports){
 var getNative = require('../internal/getNative'),
     isArrayLike = require('../internal/isArrayLike'),
     isObject = require('../lang/isObject'),
@@ -38099,7 +38162,7 @@ var keys = !nativeKeys ? shimKeys : function(object) {
 
 module.exports = keys;
 
-},{"../internal/getNative":297,"../internal/isArrayLike":298,"../internal/shimKeys":305,"../lang/isObject":313}],319:[function(require,module,exports){
+},{"../internal/getNative":299,"../internal/isArrayLike":300,"../internal/shimKeys":307,"../lang/isObject":315}],321:[function(require,module,exports){
 var isArguments = require('../lang/isArguments'),
     isArray = require('../lang/isArray'),
     isIndex = require('../internal/isIndex'),
@@ -38165,7 +38228,7 @@ function keysIn(object) {
 
 module.exports = keysIn;
 
-},{"../internal/isIndex":299,"../internal/isLength":302,"../lang/isArguments":308,"../lang/isArray":309,"../lang/isObject":313}],320:[function(require,module,exports){
+},{"../internal/isIndex":301,"../internal/isLength":304,"../lang/isArguments":310,"../lang/isArray":311,"../lang/isObject":315}],322:[function(require,module,exports){
 var keys = require('./keys'),
     toObject = require('../internal/toObject');
 
@@ -38200,7 +38263,7 @@ function pairs(object) {
 
 module.exports = pairs;
 
-},{"../internal/toObject":306,"./keys":318}],321:[function(require,module,exports){
+},{"../internal/toObject":308,"./keys":320}],323:[function(require,module,exports){
 /**
  * This method returns the first argument provided to it.
  *
@@ -38222,7 +38285,7 @@ function identity(value) {
 
 module.exports = identity;
 
-},{}],322:[function(require,module,exports){
+},{}],324:[function(require,module,exports){
 var baseProperty = require('../internal/baseProperty'),
     basePropertyDeep = require('../internal/basePropertyDeep'),
     isKey = require('../internal/isKey');
@@ -38255,5 +38318,5 @@ function property(path) {
 
 module.exports = property;
 
-},{"../internal/baseProperty":284,"../internal/basePropertyDeep":285,"../internal/isKey":301}]},{},[6])(6)
+},{"../internal/baseProperty":286,"../internal/basePropertyDeep":287,"../internal/isKey":303}]},{},[8])(8)
 });
