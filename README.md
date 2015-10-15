@@ -1,5 +1,5 @@
 # Mozu Pay By Amazon using Arc.js
-### version 0.1.0
+### version 1.0.0
 
 The [Amazon Payments](https://payments.amazon.com/home) integration uses the Arc.js framework to create custom actions to enable the use of the Pay with Amazon service on the Mozu platform. Follow the directions below to use the code in this repository to enable Amazon Payments on your Mozu site.
 
