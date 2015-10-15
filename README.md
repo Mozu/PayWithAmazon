@@ -25,18 +25,18 @@ In order to work with Arc.js, you'll need to have:
 
 1. First, clone this repository to a folder on your development machine:
    ```sh
-   $ git clone https://github.com/Mozu/AmazonPay.git
+   $ git clone https://github.com/Mozu/PayWithAmazon.git
    
-   Cloning into './AmazonPay'...
+   Cloning into './PayWithAmazon'...
    done.
    ```
 
-2. Login to the Mozu Developer Center and create a new app. Call it "AmazonPay". Make a note of its Application Key.
+2. Login to the Mozu Developer Center and create a new app. Call it "PayWithAmazon". Make a note of its Application Key.
 
 3. Now you're prepared to generate your upload configuration! Have on hand:
     - The application key for the app you just created
     - Your Developer Center login
-   Got those? OK, in your `AmazonPay` directory you cloned from Git, run:
+   Got those? OK, in your `PayWithAmazon` directory you cloned from Git, run:
    ```sh
    $ yo mozu-app --config
    ```
@@ -59,7 +59,7 @@ In order to work with Arc.js, you'll need to have:
 
 ## Installing Arc.js Actions
 
-Now that you've uploaded the code to your AmazonPay app, it's ready to install in your sandbox! In the top right of the app details page for your Achievements app, there is an "Install" button. Click it, and in the ensuing dialog, select your sandbox. Click "Install"!
+Now that you've uploaded the code to your PayWithAmazon app, it's ready to install in your sandbox! In the top right of the app details page for your Achievements app, there is an "Install" button. Click it, and in the ensuing dialog, select your sandbox. Click "Install"!
 
 *If the install process fails at this point, check with Mozu Support to make sure that the Arc.js framework is enabled for your sandbox.*
 
