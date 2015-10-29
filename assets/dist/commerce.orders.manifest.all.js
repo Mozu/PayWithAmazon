@@ -242,7 +242,7 @@ var amazonPay = require("./amazonpaysdk")();
 var constants = require("mozu-node-sdk/constants");
 var paymentConstants = require("./constants");
 var orderClient = require("mozu-node-sdk/clients/commerce/order")();
-var FulfillmentInfoClient = require('mozu-node-sdk/clients/commerce/orders/fulfillmentInfo')();
+var fulfillmentInfoClient = require('mozu-node-sdk/clients/commerce/orders/fulfillmentInfo')();
 var helper = require("./helper");
 var paymentHelper = require("./paymentHelper");
 
@@ -502,7 +502,7 @@ module.exports = function(context, callback) {
       }).catch(function(err) {
         console.error(err);
         self.cb(err);
-      });;
+      });
     } catch(e) {
       console.error(e);
       self.cb(e);
