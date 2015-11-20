@@ -4,44 +4,65 @@ var _ = require("underscore");
 var paymentConstants = require("./constants");
 var amazonPay = require("./amazonpaysdk")();
 
-function getValue(paymentSetting, key) {
-  var value = _.findWhere(paymentSetting.credentials, {"apiName" : key});
 
-    if (!value) {
-      console.log(key+" not found");
-      return;
-    }
-    //console.log("Key: "+key, value.value );
-    return value.value;
-}
 
 var paymentHelper = module.exports = {
 
 	getPaymentConfig: function(context) {
+		var self = this;
 		return helper.createClientFromContext(PaymentSettings, context, true)
 		.getThirdPartyPaymentWorkflowWithValues({fullyQualifiedName: helper.getPaymentFQN(context)})
-      	.then(function(paymentSetting) {
-	        var environment = getValue(paymentSetting, paymentConstants.ENVIRONMENT);
-	        var isSandbox = environment == "sandbox";
-	        var region = getValue(paymentSetting, paymentConstants.REGION);
-	        var awsSecret = getValue(paymentSetting, paymentConstants.AWSSECRET);
-	        var awsAccessKeyId = getValue(paymentSetting, paymentConstants.AWSACCESSKEYID);
-	        var sellerId = getValue(paymentSetting, paymentConstants.SELLERID);
-	        var appId = getValue(paymentSetting, paymentConstants.APPID);
-	        var orderProcessing = getValue(paymentSetting, paymentConstants.ORDERPROCESSING);
-	       
-	        var captureOnAuthorize = (orderProcessing == paymentConstants.CAPTUREONSUBMIT);
-
-	        var config = {"isSandbox" : isSandbox, 
-	                      "awsAccessKeyId" : awsAccessKeyId, 
-	                          "awsSecret" : awsSecret,
-	                          "sellerId" : sellerId,
-	                          "region" : region,
-	                          "app_id" : appId,
-	                          "captureOnAuthorize": captureOnAuthorize, isEnabled: paymentSetting.isEnabled };
-
-        	return config;
+      	.then(function(paymentSettings) {
+      		return self.getConfig(context, paymentSettings);
     	});
+	},
+	getConfig: function(context, paymentSettings) {
+
+		var orderProcessing = helper.getValue(paymentSettings, paymentConstants.ORDERPROCESSING);
+	       
+        var captureOnAuthorize = (orderProcessing == paymentConstants.CAPTUREONSUBMIT);
+        var awsConfig =  context.getSecureAppData('awsConfig');
+        if (!awsConfig) return {};
+
+        var environment = helper.getValue(paymentSettings, paymentConstants.ENVIRONMENT) ;
+        var config = {
+        				"isSandbox" : (environment === "sandbox"), 
+        				"environment" : environment,
+                      	"mwsAccessKeyId" : awsConfig.mwsAccessKeyId, 
+                        "mwsSecret" : awsConfig.mwsSecret,
+                        "mwsAuthToken" : helper.getValue(paymentSettings, paymentConstants.AUTHTOKEN),
+                        "sellerId" : helper.getValue(paymentSettings, paymentConstants.SELLERID),
+                        "region" : helper.getValue(paymentSettings, paymentConstants.REGION),
+                        "clientId" : helper.getValue(paymentSettings, paymentConstants.CLIENTID),
+                        "captureOnAuthorize": captureOnAuthorize, 
+                        "isEnabled": paymentSettings.isEnabled 
+                    };
+
+    	return config;
+	},
+	validatePaymentSettings: function(context, callback) {
+		var self = this;
+		var paymentSettings = context.request.body;
+
+		var pwaSettings = _.findWhere(paymentSettings.ExternalPaymentWorkflowDefinitions, {FullyQualifiedName : helper.getPaymentFQN(context)});
+		
+  		if (!pwaSettings || !pwaSettings.IsEnabled) callback();
+
+  		var config = self.getConfig(context, pwaSettings);
+
+  		if (!config.mwsAccessKeyId || !config.mwsSecret) {
+  			callback("Pay With Amazon - AWS Access Key/Secret not found.");
+			return;
+  		}
+
+  		if (!config.mwsAuthToken || !config.sellerId || !config.region || !config.clientId || !config.environment)
+		{
+			callback("Pay With Amazon - Environment/Auth Token/SellerId/Region/ClientId fields are required.");
+			return;
+		}
+
+		//TODO: validate values
+		callback();
 	},
 	getInteractionByStatus: function (interactions, status) {
 	  return _.find(interactions, function(interaction){

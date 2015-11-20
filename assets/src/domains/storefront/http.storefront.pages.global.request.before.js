@@ -18,16 +18,15 @@ function setError(err, context, callback) {
 }
 
 module.exports = function(context, callback) {
-  try {
-    if (context.request.url.indexOf("/cart") > -1) {
-      var amazonCheckout = new AmazonCheckout(context, callback);
-      amazonCheckout.validateAndProcess();
-    }
-    else
-      callback();
-  } catch(e) {
-    console.log(e);
-    setError(e);
+  if (context.request.url.indexOf("/cart") > -1) {
+    var amazonCheckout = new AmazonCheckout(context, callback);
+    amazonCheckout.validateAndProcess().then(callback, function(e){
+      setError(e, context, callback);
+    }).catch(function(e){
+      setError(e, context, callback);
+    });
   }
+  else
+    callback();
   
 };

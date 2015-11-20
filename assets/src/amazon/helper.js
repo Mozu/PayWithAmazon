@@ -21,12 +21,13 @@ var helper = module.exports = {
 		var user = context.items.pageContext.user;
 		if ( !user.isAnonymous && !user.IsAuthenticated ) 
 		{
-			self.ctx.response.redirect('/user/login?returnUrl=' + encodeURIComponent(context.request.url));
+			context.response.redirect('/user/login?returnUrl=' + encodeURIComponent(context.request.url));
 			return context.response.end();
 		}
 	},
 	getPaymentFQN: function(context) {
 		var appInfo = getAppInfo(context);
+		console.log("App Info", appInfo);
 		return appInfo.namespace+"~"+paymentConstants.PAYMENTSETTINGID;
 	},
 	isAmazonCheckout: function (context) {
@@ -63,6 +64,16 @@ var helper = module.exports = {
 	getUniqueId: function () {
 	  var guid = Guid.create();
 	  return guid.value.replace(/\-/g, "");
+	},
+	getValue: function(paymentSetting, key) {
+	  var value = _.findWhere(paymentSetting.credentials, {"apiName" : key}) || _.findWhere(paymentSetting.Credentials, {"APIName" : key});
+
+	    if (!value) {
+	      console.log(key+" not found");
+	      return;
+	    }
+	    //console.log("Key: "+key, value.value );
+	    return value.value || value.Value;
 	}
 
 };

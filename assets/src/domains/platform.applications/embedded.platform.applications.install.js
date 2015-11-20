@@ -9,6 +9,7 @@ var ActionInstaller = require('mozu-action-helpers/installers/actions');
 var tennatClient = require("mozu-node-sdk/clients/platform/tenant")();
 var constants = require('mozu-node-sdk/constants');
 var paymentConstants = require("../../amazon/constants");
+var helper =  require("../../amazon/helper");
 var _ = require("underscore");
 
 function AppInstall(context, callback) {
@@ -19,50 +20,17 @@ function AppInstall(context, callback) {
 	self.initialize = function() {
 		console.log(context);
 		console.log("Getting tenant", self.ctx.apiContext.tenantId);
-		tennatClient.getTenant({tenantId: self.ctx.apiContext.tenantId})
-		.then(function(tenant){
-			enableAmazonPaymentWorkflow(tenant);
-		}, self.cb);
+		var tenant = context.get.tenant();
+		enableAmazonPaymentWorkflow(tenant);
 	};
 
 	function enableAmazonPaymentWorkflow(tenant) {
 
 		try {
 			console.log("Installing amazon payment settings", tenant);
-			var paymentDef = {
-		    "name": paymentConstants.PAYMENTSETTINGID,
-		    "namespace": context.get.nameSpace(),
-		    "isEnabled": "false",
-		    "credentials":  [
-			    	getPaymentActionFieldDef("Environment", paymentConstants.ENVIRONMENT, "RadioButton", false,getEnvironmentVocabularyValues()),
-			    	getPaymentActionFieldDef("Seller Id", paymentConstants.SELLERID, "TextBox", false,null),
-			    	getPaymentActionFieldDef("Client Id", paymentConstants.CLIENTID, "TextBox", false,null),
-			    	getPaymentActionFieldDef("Application Id", paymentConstants.APPID, "TextBox", true,null),
-			    	getPaymentActionFieldDef("AWS Access Key", paymentConstants.AWSACCESSKEYID, "TextBox", true.null),
-			    	getPaymentActionFieldDef("AWS Secret", paymentConstants.AWSSECRET, "TextBox", true,null),
-			    	getPaymentActionFieldDef("AWS Region", paymentConstants.REGION, "RadioButton", false,getRegions()),
-			    	getPaymentActionFieldDef("Order Processing", paymentConstants.ORDERPROCESSING, "RadioButton", true,getOrderProcessingVocabularyValues())/*,
-			    	getPaymentActionFieldDef("Button Color", paymentConstants.BUTTONCOLOR, "RadioButton", false,getButtonColorValues()),
-			    	getPaymentActionFieldDef("Button Type", paymentConstants.BUTTONTYPE, "RadioButton", false,getButtonTypeValues()),
-			    	getPaymentActionFieldDef("Use Popup Window", paymentConstants.POPUP, "RadioButton", false,getPopupValues())*/
-			    ]
-			};
-
-			console.log("Amazon Payment definition", paymentDef);
-
+			
 			var tasks = tenant.sites.map(function(site) {
-											console.log("Adding payment settings for site", site.id);
-											var paymentSettingsClient = require("mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings")();
-											paymentSettingsClient.context[constants.headers.SITE] = site.id;
-											//GetExisting 
-											return paymentSettingsClient.getThirdPartyPaymentWorkflows({}).then(function(paymentSettings){
-												var existing = _.findWhere(paymentSettings, {"name" : paymentDef.name});
-												
-												if (!existing) 
-													return paymentSettingsClient.addThirdPartyPaymentWorkflow(paymentDef);
-												else
-													console.log("Amazon payment Def exists for "+site.id);
-											});
+											return addUpdatePaymentSettings(context, site);
 										});
 
 			Promise.all(tasks).then(function(result) {
@@ -77,6 +45,29 @@ function AppInstall(context, callback) {
 	}
 
 
+	function addUpdatePaymentSettings(context, site) {
+		console.log("Adding payment settings for site", site.id);
+		var paymentSettingsClient = require("mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings")();
+		paymentSettingsClient.context[constants.headers.SITE] = site.id;
+		//GetExisting 
+		var paymentDef = getPaymentDef();
+		return paymentSettingsClient.getThirdPartyPaymentWorkflowWithValues({fullyQualifiedName :  paymentDef.namespace+"~"+paymentDef.name })
+		.then(function(paymentSettings){
+			return updateThirdPartyPaymentWorkflow(paymentSettingsClient, paymentSettings);
+		},function(err) {
+			return paymentSettingsClient.addThirdPartyPaymentWorkflow(paymentDef);
+		});
+	}
+
+	function updateThirdPartyPaymentWorkflow(paymentSettingsClient, existingSettings) {
+		var paymentDef = getPaymentDef(existingSettings);
+		console.log(paymentDef);
+		paymentDef.isEnabled = existingSettings.isEnabled;
+		return paymentSettingsClient.deleteThirdPartyPaymentWorkflow({ "fullyQualifiedName" : paymentDef.namespace+"~"+paymentDef.name})
+		.then(function(result) {
+			return paymentSettingsClient.addThirdPartyPaymentWorkflow(paymentDef);
+		});
+	}
 
 
 	function enableActions() {
@@ -85,28 +76,21 @@ function AppInstall(context, callback) {
 	 	installer.enableActions(context).then(self.cb.bind(null, null), self.cb);	
 	}
 
-
-	function getPopupValues() {
-		return [
-			getVocabularyContent("true", "en-US", "Yes"),
-			getVocabularyContent("false", "en-US", "No")
-		];
-	}
-
-	function getButtonTypeValues() {
-		return [
-			getVocabularyContent("PwA", "en-US", "Pay With Amazon"),
-			getVocabularyContent("Pay", "en-US", "Pay"),
-			getVocabularyContent("A", "en-US", "Only Amazon Payments Logo")
-		];
-	}
-
-	function getButtonColorValues() {
-		return [
-			getVocabularyContent("Gold", "en-US", "Gold"),
-			getVocabularyContent("LightGray", "en-US", "Light Gray"),
-			getVocabularyContent("DarkGray", "en-US", "Dark Gray")
-		];
+	function getPaymentDef(existingSettings) {
+		return  {
+		    "name": paymentConstants.PAYMENTSETTINGID,
+		    "namespace": context.get.nameSpace(),
+		    "isEnabled": "false",
+		    "description" : "<div style='font-size:13px;font-style:italic'>Please review our <a style='color:blue;' target='mozupwahelp' href='http://mozu.github.io/IntegrationDocuments/PayWithAmazon/Mozu-PayWithAmazon-App.htm'>Help</a> documentation to configure Pay With Amazon</div>",
+		    "credentials":  [
+			    	getPaymentActionFieldDef("Environment", paymentConstants.ENVIRONMENT, "RadioButton", false,getEnvironmentVocabularyValues(), existingSettings),
+			    	getPaymentActionFieldDef("Seller Id", paymentConstants.SELLERID, "TextBox", false,null,existingSettings),
+			    	getPaymentActionFieldDef("Client Id", paymentConstants.CLIENTID, "TextBox", false,null,existingSettings),
+			    	getPaymentActionFieldDef("MWS Auth Token", paymentConstants.AUTHTOKEN, "TextBox", true,null,existingSettings),
+			    	getPaymentActionFieldDef("AWS Region", paymentConstants.REGION, "RadioButton", false,getRegions(),existingSettings),
+			    	getPaymentActionFieldDef("Order Processing", paymentConstants.ORDERPROCESSING, "RadioButton", true,getOrderProcessingVocabularyValues(),existingSettings),
+			    ]
+			};
 	}
 
 	function getRegions() {
@@ -142,10 +126,15 @@ function AppInstall(context, callback) {
 		};
 	}
 
-	function getPaymentActionFieldDef(displayName, key, type, isSensitive, vocabularyValues) {
+	function getPaymentActionFieldDef(displayName, key, type, isSensitive, vocabularyValues, existingSettings) {
+		value = "";
+		if (existingSettings)
+			value = helper.getValue(existingSettings, key);
+
 		return {
 	          "displayName": displayName,
 	          "apiName": key,
+	          "value" : value,
 	          "inputType": type,
 	          "isSensitive": isSensitive,
 	          "vocabularyValues" : vocabularyValues

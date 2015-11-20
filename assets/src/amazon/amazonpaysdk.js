@@ -12,9 +12,10 @@ var version = "2013-01-01";
 
 var getBaseParams = function(action, config) {
 	return {
-		AWSAccessKeyId : config.awsAccessKeyId,
+		AWSAccessKeyId : config.mwsAccessKeyId,
 		Action: action,
 		SellerId: config.sellerId,
+		MWSAuthToken: config.mwsAuthToken,
 		SignatureMethod: "HmacSHA256",
 		SignatureVersion: "2",
 		Version: version
@@ -79,7 +80,7 @@ module.exports = function() {
 		params.Timestamp = utcTime.format('YYYY-MM-DDTHH:mm:ss')+"Z";
 
 		params = sortParams(params);
-
+		console.log(params);
 		//sign the request
 		var stringToSign = "POST";
 		stringToSign += "\n";
@@ -89,7 +90,7 @@ module.exports = function() {
 		stringToSign += "\n";
 		stringToSign += buildParamString(params, true);
 		console.log("AWS Params to Sign", stringToSign);
-		var signature = crypto.createHmac("sha256", self.config.awsSecret).update(stringToSign).digest("base64");
+		var signature = crypto.createHmac("sha256", self.config.mwsSecret).update(stringToSign).digest("base64");
 		console.log("Aws Signature",signature);
 		params.Signature = encodeURIComponent(signature);
 		

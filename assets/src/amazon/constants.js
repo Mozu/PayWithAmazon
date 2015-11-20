@@ -3,6 +3,7 @@ module.exports = {
 	ENVIRONMENT: "environment",
 	SELLERID: "sellerId",
 	CLIENTID: "clientId",
+	AUTHTOKEN: "authToken",
 	APPID: "appId",
 	AWSACCESSKEYID: "awsAccessKeyId",
 	AWSSECRET: "awsSecret",

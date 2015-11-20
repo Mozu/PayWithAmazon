@@ -6,7 +6,7 @@ var amazonPay = require("./amazonpaysdk")();
 var constants = require("mozu-node-sdk/constants");
 var paymentConstants = require("./constants");
 var orderClient = require("mozu-node-sdk/clients/commerce/order")();
-var fulfillmentInfoClient = require('mozu-node-sdk/clients/commerce/orders/fulfillmentInfo')();
+var FulfillmentInfoClient = require('mozu-node-sdk/clients/commerce/orders/fulfillmentInfo')();
 var helper = require("./helper");
 var paymentHelper = require("./paymentHelper");
 
@@ -28,7 +28,7 @@ function createOrderFromCart(cartId) {
         console.log("Aws Order status", state);
         if (state == "Canceled") {
           order.fulfillmentinfo = null;
-          return fulfillmentInfoClient.setFulFillmentInfo({orderId: order.id, version: order.version}, {body: {}}).then(function(result) {
+          return FulfillmentInfoClient.setFulFillmentInfo({orderId: order.id, version: order.version}, {body: {}}).then(function(result) {
              console.log("Updated order fulfillmentinfo", result);
               return order;
           });
@@ -95,11 +95,11 @@ module.exports = function(context, callback) {
   self.validateAndProcess = function() {
       var params = helper.parseUrlParams(self.ctx);
 
-      if (!helper.isAmazonCheckout(self.ctx)) return self.cb();
+      if (!helper.isAmazonCheckout(self.ctx))  self.cb();
       console.log(self.ctx.apiContext);
      
 
-      paymentHelper.getPaymentConfig(self.ctx).
+      return paymentHelper.getPaymentConfig(self.ctx).
       then(function(config) { 
         if (!config.isEnabled) return self.cb();
         amazonPay.configure(config);
@@ -132,7 +132,7 @@ module.exports = function(context, callback) {
         
         self.ctx.response.redirect('/checkout/'+order.id+"?"+queryString);
         self.ctx.response.end();
-      }).then(self.cb, self.cb);   
+      });//.then(self.cb, self.cb);   
   };
 
   //Add view data to control theme flow
@@ -190,7 +190,6 @@ module.exports = function(context, callback) {
 
     paymentHelper.getPaymentConfig(self.ctx)
     .then(function(config) {
-        console.log(config);
         if (!config.isEnabled) return self.cb();
         amazonPay.configure(config);
         return amazonPay.validateToken(addressConsentToken); 
@@ -286,8 +285,9 @@ module.exports = function(context, callback) {
     console.log("Amazon payment payment", payment);
 
     if (!payment) return self.cb();
-    configure(true, self.nameSpace, self.cb).then(function(result){
-      return amazonPay.getOrderDetails(payment.externalTransactionId);
+    paymentHelper.getPaymentConfig(self.ctx).then(function(config) {
+        amazonPay.configure(config);
+        return amazonPay.getOrderDetails(payment.externalTransactionId);
     }).then(function(awsOrder) {
        var state = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails.OrderReferenceStatus.State;
        console.log("Aws Order status", state);
