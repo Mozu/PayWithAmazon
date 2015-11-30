@@ -82,7 +82,6 @@ module.exports = function() {
 		params.Timestamp = utcTime.format('YYYY-MM-DDTHH:mm:ss')+"Z";
 
 		params = sortParams(params);
-		console.log(params);
 		//sign the request
 		var stringToSign = "POST";
 		stringToSign += "\n";
