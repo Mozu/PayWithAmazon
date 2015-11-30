@@ -12,6 +12,8 @@ var regionMappings = {"de" : "eu", "uk" : "eu", "us" : "na", "jp" : "jp"};
 var version = "2013-01-01";
 
 var getBaseParams = function(action, config) {
+	if (!config.mwsAccessKeyId || !config.mwsSecret)
+		throw new Error("AWS Access KeyId or Secret not found");
 	return {
 		AWSAccessKeyId : config.mwsAccessKeyId,
 		Action: action,
@@ -338,6 +340,7 @@ module.exports = function(context, callback) {
 
       return paymentHelper.getPaymentConfig(self.ctx).
       then(function(config) { 
+        console.log(config);
         if (!config.isEnabled) return self.cb();
         amazonPay.configure(config);
         return amazonPay.validateToken(params.access_token); 
@@ -369,6 +372,9 @@ module.exports = function(context, callback) {
         
         self.ctx.response.redirect('/checkout/'+order.id+"?"+queryString);
         self.ctx.response.end();
+      }).catch(function(e){
+        console.error(err);
+        self.cb(err);
       });//.then(self.cb, self.cb);   
   };
 
@@ -663,6 +669,7 @@ var paymentHelper = module.exports = {
 		return helper.createClientFromContext(PaymentSettings, context, true)
 		.getThirdPartyPaymentWorkflowWithValues({fullyQualifiedName: helper.getPaymentFQN(context)})
       	.then(function(paymentSettings) {
+      		console.log(paymentSettings);
       		return self.getConfig(context, paymentSettings);
     	});
 	},
@@ -672,6 +679,7 @@ var paymentHelper = module.exports = {
 	       
         var captureOnAuthorize = (orderProcessing == paymentConstants.CAPTUREONSUBMIT);
         var awsConfig =  context.getSecureAppData('awsConfig');
+        console.log(awsConfig);
         if (!awsConfig) return {};
 
         var environment = helper.getValue(paymentSettings, paymentConstants.ENVIRONMENT) ;

@@ -13,6 +13,7 @@ var paymentHelper = module.exports = {
 		return helper.createClientFromContext(PaymentSettings, context, true)
 		.getThirdPartyPaymentWorkflowWithValues({fullyQualifiedName: helper.getPaymentFQN(context)})
       	.then(function(paymentSettings) {
+      		console.log(paymentSettings);
       		return self.getConfig(context, paymentSettings);
     	});
 	},
@@ -22,6 +23,7 @@ var paymentHelper = module.exports = {
 	       
         var captureOnAuthorize = (orderProcessing == paymentConstants.CAPTUREONSUBMIT);
         var awsConfig =  context.getSecureAppData('awsConfig');
+        console.log(awsConfig);
         if (!awsConfig) return {};
 
         var environment = helper.getValue(paymentSettings, paymentConstants.ENVIRONMENT) ;

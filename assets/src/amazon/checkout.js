@@ -101,6 +101,7 @@ module.exports = function(context, callback) {
 
       return paymentHelper.getPaymentConfig(self.ctx).
       then(function(config) { 
+        console.log(config);
         if (!config.isEnabled) return self.cb();
         amazonPay.configure(config);
         return amazonPay.validateToken(params.access_token); 
@@ -132,6 +133,9 @@ module.exports = function(context, callback) {
         
         self.ctx.response.redirect('/checkout/'+order.id+"?"+queryString);
         self.ctx.response.end();
+      }).catch(function(e){
+        console.error(err);
+        self.cb(err);
       });//.then(self.cb, self.cb);   
   };
 
