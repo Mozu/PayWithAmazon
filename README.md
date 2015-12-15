@@ -1,27 +1,30 @@
-# Mozu Pay By Amazon using Arc.js
-### version 1.0.0
+# Mozu Pay with Amazon Application using Arc.js
+### Version 1.0.0 - Hosted Workflow
 
-The [Amazon Payments](https://payments.amazon.com/home) integration uses the Arc.js framework to create custom actions to enable the use of the Pay with Amazon service on the Mozu platform. Follow the directions below to use the code in this repository to enable Amazon Payments on your Mozu site.
+The Pay with Amazon Application by Mozu uses the Arc.js framework to create custom actions that enable the use of the Amazon Payments service on the Mozu platform. This app uses the [Amazon Marketplace Web Service (MWS) API](https://developer.amazonservices.com/gp/mws/docs.html) to connect Mozu with Amazon. 
 
-**Note:** The instructions in this readme only apply if you have Arc.js enabled and are integrating this application in-house. Contact your Mozu representative to enable Arc.js on your tenant. If you installed the Pay with Amazon Certified Code Action from Mozu, you do not need to build this app. You can go directly to the [theme widget](https://github.com/Mozu/PayWithAmazon-Theme) to merge Pay with Amazon with your Mozu theme.
+**Note:** The code in this repository is provided for reference purposes only. If you are a Mozu customer and want to enable Pay with Amazon functionality on your storefront, you can simply install the Pay with Amazon Application by Mozu from the [Mozu App Marketplace](https://www.mozu.com/marketplace/) and integrate the required [theme](https://github.com/Mozu/PayWithAmazon-Theme) changes.
 
-## Requirements
+## Amazon Security Requirements
+This application is implemented using a hosted workflow that protects a merchant from having to share their AWS Secret Key. Amazon requires that merchants never share their Secret Key, and provides the MWS Authorization Token as an alternative method for third-party application developers to access a client’s MWS account. The merchant-flow branch of this repo shows an alternative implementation that in-house application developers can use.
+
+## Requirements for Developing with Arc.js
 
 In order to work with Arc.js, you'll need to have:
 
  - A Developer Account at [mozu.com](http://mozu.com/login)
- - A Sandbox connected to that developer account, with code actions enabled
- - NodeJS v0.12
+ - Arc.js enabled on your Mozu tenant. (Contact your sales or professional services representative for more information.)
+ - NodeJS
  - The following global NPM packages installed
     - `yo`
     - `grunt-cli`
     - `generator-mozu-app`
-   Install all of these at once with the following command:
+ You can install all of the required NPM packages at once by running the following command in your Terminal (OS X) or Command Prompt (Windows):
    ```sh
    npm i -g yo grunt-cli generator-mozu-app
    ```
 
-## Setup
+## Clone and Upload the App
 
 1. First, clone this repository to a folder on your development machine:
    ```sh
@@ -31,7 +34,7 @@ In order to work with Arc.js, you'll need to have:
    done.
    ```
 
-2. Login to the Mozu Developer Center and create a new app. Call it "PayWithAmazon". Make a note of its Application Key.
+2. Log in to the Mozu Developer Center and create a new app. Call it "PayWithAmazon". Make a note of its Application Key.
 
 3. Now you're prepared to generate your upload configuration! Have on hand:
     - The application key for the app you just created
@@ -52,44 +55,45 @@ In order to work with Arc.js, you'll need to have:
    ```sh
    $ grunt
    ```
-   to upload the actions to Developer Center. To upload continuously as you work, by detecting when you change files, run:
+   to upload the actions to Developer Center. Or, if you want grunt to detect when you change files and upload continuously as you work, run:
    ```sh
    $ grunt watch
    ```
 
-## Installing Arc.js Actions
+## Install the App
 
-Now that you've uploaded the code to your PayWithAmazon app, it's ready to install in your sandbox! In the top right of the app details page for your Achievements app, there is an "Install" button. Click it, and in the ensuing dialog, select your sandbox. Click "Install"!
+Now that you've uploaded the code to your PayWithAmazon app, it's ready to install in your sandbox! 
+
+1.	In Mozu Dev Center, go to **Develop** > **Applications** and double-click the app. 
+2.	On the app details page, click **Install**. 
+3.	Select your sandbox in the dialog that appears and click **OK**.
 
 *If the install process fails at this point, check with Mozu Support to make sure that the Arc.js framework is enabled for your sandbox.*
 
-Now, view your sandbox! You'll find that in the "Settings" menu in the upper right, a item called "Payment & Checkout". Choose it.
+## Configure Your Pay with Amazon Settings in Mozu Admin
 
-You should see a new option "PayByAmazon". Check the checkbox to enable it.
+In the sandbox where you installed the app, go to **Settings** > **Payment & Checkout**.
 
-The following settings are required for PayByAmazon to work (Additonal settings can be added by modifying src/paltform.applications/embedded.platform.applications.install.js). The values for these can be obtained from [Amazon Seller Central](https://sellercentral.amazon.com/)
+You should see a new option for **PayWithAmazon**. Enable the checkbox to view the Amazon configuration settings. Pay with Amazon requires the following default settings for the app to work:
 - SellerId
 - Client Id
 - Application Id
-- AWS Access key
-- AWS Secret
+- MWS Auth Token
 - AWS Region
 - Order Processing
 
-## Theme
+These settings are defined in the following file in your application:
+`assets/src/domains/platform.applications/embedded.platform.applications.install.js`
 
-Merge [Theme](https://github.com/Mozu/PayWithAmazon-Theme) changes required to enable Pay By Amazon checkout flow in storefront
+You can modify this file to add additional settings.
 
-To enable Pay with Amazon on your storefront, you must configure your Amazon Payments account information in the Payment Settings page in Mozu Admin. Once this information has been entered, the Pay with Amazon service is available, but in order for it to appear on your storefront for your shoppers your theme must be updated.
+## Merge Theme Changes
 
-To update your theme to support Pay with Amazon, review and apply the changes made in our sample implementation to your own theme. A comparison between the core theme and a sample implementation of a theme with Pay with Amazon enabled can be viewed [here](https://github.com/Mozu/PayWithAmazon-Theme).
+Installing and configuring the Pay with Amazon app enables you to accept payments via Amazon Payments. However, you still must enable Pay with Amazon functionality on your storefront so that customers can use it. Go to the [PayWithAmazon-Theme](https://github.com/Mozu/PayWithAmazon-Theme) repository and follow the instructions in the readme to merge Pay with Amazon functionality with your Mozu theme.
 
-For more information on working with themes, including modifying, uploading, installing, and applying the theme to your site, see the [Theme Development documentation](http://developer.mozu.com/learn/theme-development/quickstart).
+## Payment Code Actions
 
-
-## Payment code action
-
-The following are the actions for which embedded.commerce.payments.action.performPaymentInteraction is invoked
+The following are the actions for which embedded.commerce.payments.action.performPaymentInteraction is invoked:
 - CreatePayment
 - AuthorizePayment
 - CapturePayment
@@ -98,7 +102,7 @@ The following are the actions for which embedded.commerce.payments.action.perfor
 - Rollback
 - VoidPayment
 
-After the payment interaction has been processed, one of the following states can be passed back to the system
+After the payment interaction has been processed, one of the following states can be passed back to the system:
 - Authorized
 - Captured
 - Declined
