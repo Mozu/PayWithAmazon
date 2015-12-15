@@ -3,7 +3,7 @@
 
 The Pay with Amazon Application by Mozu uses the Arc.js framework to create custom actions that enable the use of the Amazon Payments service on the Mozu platform. This app uses the [Amazon Marketplace Web Service (MWS) API](https://developer.amazonservices.com/gp/mws/docs.html) to connect Mozu with Amazon. 
 
-**Note:** The code in this repository is provided for reference purposes only. If you are a Mozu customer and want to enable Pay with Amazon functionality on your storefront, you can simply install the Pay with Amazon Application by Mozu from the Mozu App Marketplace and integrate the required [theme] (https://github.com/Mozu/PayWithAmazon-Theme) changes.
+**Note:** The code in this repository is provided for reference purposes only. If you are a Mozu customer and want to enable Pay with Amazon functionality on your storefront, you can simply install the Pay with Amazon Application by Mozu from the [Mozu App Marketplace](https://www.mozu.com/marketplace/) and integrate the required [theme](https://github.com/Mozu/PayWithAmazon-Theme) changes.
 
 ## Amazon Security Requirements
 This application is implemented using a merchant workflow that requires your Amazon Web Services (AWS) Access Key ID and Secret Key. Amazon requires that merchants *never* share their Secret Key, so you should only consider this implementation if you are a merchant developing a Pay with Amazon application in-house. If you are a third-party application developer working on behalf of a client, use the hosted workflow as demonstrated in the [master branch](https://github.com/Mozu/PayWithAmazon) of this repository.
@@ -13,13 +13,14 @@ This application is implemented using a merchant workflow that requires your Ama
 In order to work with Arc.js, you'll need to have:
 
  - A Developer Account at [mozu.com](http://mozu.com/login)
- - A Sandbox connected to that developer account, with code actions enabled
+ - Arc.js enabled on your Mozu tenant. (Contact your sales or professional services representative for more information.)
  - NodeJS
- - The following global NPM packages installed
+ - The following global NPM packages installed:
     - `yo`
     - `grunt-cli`
     - `generator-mozu-app`
-   Install all of these at once with the following command:
+
+You can install all of the required NPM packages at once by running the following command in your Terminal (OS X) or Command Prompt (Windows):
    ```sh
    npm i -g yo grunt-cli generator-mozu-app
    ```
@@ -34,7 +35,7 @@ In order to work with Arc.js, you'll need to have:
    done.
    ```
 
-2. Login to the Mozu Developer Center and create a new app. Call it "PayWithAmazon". Make a note of its Application Key.
+2. Log in to the Mozu Developer Center and create a new app. Call it "PayWithAmazon". Make a note of its Application Key.
 
 3. Now you're prepared to generate your upload configuration! Have on hand:
     - The application key for the app you just created
