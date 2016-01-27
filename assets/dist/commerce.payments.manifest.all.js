@@ -83,7 +83,6 @@ module.exports = function() {
 		params.Timestamp = utcTime.format('YYYY-MM-DDTHH:mm:ss')+"Z";
 
 		params = sortParams(params);
-		console.log(params);
 		//sign the request
 		var stringToSign = "POST";
 		stringToSign += "\n";
@@ -340,7 +339,6 @@ module.exports = function(context, callback) {
 
       return paymentHelper.getPaymentConfig(self.ctx).
       then(function(config) { 
-        console.log(config);
         if (!config.isEnabled) return self.cb();
         amazonPay.configure(config);
         return amazonPay.validateToken(params.access_token); 
@@ -437,12 +435,13 @@ module.exports = function(context, callback) {
         amazonPay.configure(config);
         return amazonPay.validateToken(addressConsentToken); 
     }).then(function(isTokenValid){
-        if (!isTokenValid) self.cb();
-        
+        //if (!isTokenValid) self.cb();
+        console.log("isTokenValid", isTokenValid);
         if (isTokenValid) {
           console.log("Pay by Amazon token is valid...setting fulfilmment info");
           return amazonPay.getOrderDetails(awsReferenceId, addressConsentToken);
         } else {
+          console.error("Amazon session expired. Please re-login from cart page to continue checkout");
           throw new Error("Amazon session expired. Please re-login from cart page to continue checkout");
         }
     })
@@ -669,7 +668,6 @@ var paymentHelper = module.exports = {
 		return helper.createClientFromContext(PaymentSettings, context, true)
 		.getThirdPartyPaymentWorkflowWithValues({fullyQualifiedName: helper.getPaymentFQN(context)})
       	.then(function(paymentSettings) {
-      		console.log(paymentSettings);
       		return self.getConfig(context, paymentSettings);
     	});
 	},
@@ -679,7 +677,6 @@ var paymentHelper = module.exports = {
 	       
         var captureOnAuthorize = (orderProcessing == paymentConstants.CAPTUREONSUBMIT);
         var awsConfig =  context.getSecureAppData('awsConfig');
-        console.log(awsConfig);
         if (!awsConfig) return {};
 
         var environment = helper.getValue(paymentSettings, paymentConstants.ENVIRONMENT) ;

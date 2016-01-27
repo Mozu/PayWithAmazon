@@ -197,12 +197,13 @@ module.exports = function(context, callback) {
         amazonPay.configure(config);
         return amazonPay.validateToken(addressConsentToken); 
     }).then(function(isTokenValid){
-        if (!isTokenValid) self.cb();
-        
+        //if (!isTokenValid) self.cb();
+        console.log("isTokenValid", isTokenValid);
         if (isTokenValid) {
           console.log("Pay by Amazon token is valid...setting fulfilmment info");
           return amazonPay.getOrderDetails(awsReferenceId, addressConsentToken);
         } else {
+          console.error("Amazon session expired. Please re-login from cart page to continue checkout");
           throw new Error("Amazon session expired. Please re-login from cart page to continue checkout");
         }
     })
