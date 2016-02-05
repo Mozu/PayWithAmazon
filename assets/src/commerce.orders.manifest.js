@@ -1,17 +1,12 @@
 module.exports = {
   
-  'embedded.commerce.orders.action.after': {
+  'amazonProcessOrderActionAtfer': {
       actionName: 'embedded.commerce.orders.action.after',
-      customFunction: require('./domains/commerce.orders/embedded.commerce.orders.action.after')
+      customFunction: require('./domains/commerce.orders/processOrderActionAfter')
   },
   
-  'http.commerce.orders.setFulFillmentInfo.before': {
+  'amazonSetFulfillmentInfo': {
       actionName: 'http.commerce.orders.setFulFillmentInfo.before',
-      customFunction: require('./domains/commerce.orders/http.commerce.orders.setFulFillmentInfo.before')
-  },
-  
-  'http.commerce.orders.setBillingInfo.before': {
-      actionName: 'http.commerce.orders.setBillingInfo.before',
-      customFunction: require('./domains/commerce.orders/http.commerce.orders.setBillingInfo.before')
+      customFunction: require('./domains/commerce.orders/setFulfillmentInfoBefore')
   }
 };

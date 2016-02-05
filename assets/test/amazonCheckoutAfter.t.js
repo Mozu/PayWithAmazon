@@ -1,6 +1,6 @@
 /**
  * This is a scaffold for unit tests for the custom function for
- * `http.commerce.orders.setBillingInfo.before`.
+ * `http.storefront.pages.checkout.request.after`.
  * Modify the test conditions below. You may:
  *  - add special assertions for code actions from Simulator.assert
  *  - create a mock context with Simulator.context() and modify it
@@ -13,12 +13,14 @@
 var Simulator = require('mozu-action-simulator');
 var assert = Simulator.assert;
 
-describe('http.commerce.orders.setBillingInfo.before', function () {
+var actionName = 'http.storefront.pages.checkout.request.after';
+
+describe('amazonCheckoutAfter implementing http.storefront.pages.checkout.request.after', function () {
 
   var action;
 
   before(function () {
-    action = require('../src/domains/commerce.orders/http.commerce.orders.setBillingInfo.before');
+    action = require('../src/domains/storefront/amazonCheckoutAfter');
   });
 
   it('runs successfully', function(done) {
@@ -29,7 +31,7 @@ describe('http.commerce.orders.setBillingInfo.before', function () {
       done();
     };
 
-    var context = Simulator.context('http.commerce.orders.setBillingInfo.before', callback);
+    var context = Simulator.context(actionName, callback);
 
     // modify context as necessary
 
@@ -42,7 +44,7 @@ describe('http.commerce.orders.setBillingInfo.before', function () {
      var server = http.createServer(function(req, res) {
       context.request = req;
       context.response = res;
-      assert.ok(Simulator.simulate('http.commerce.orders.setBillingInfo.before', action, context, callback));
+      assert.ok(Simulator.simulate(actionName, action, context, callback));
      }).listen(9000);
      http.get('http://localhost:9000/', function(req, res) {
       // add the request body here
@@ -50,6 +52,6 @@ describe('http.commerce.orders.setBillingInfo.before', function () {
 
     */
 
-    Simulator.simulate('http.commerce.orders.setBillingInfo.before', action, context, callback);
+    Simulator.simulate(actionName, action, context, callback);
   });
 });

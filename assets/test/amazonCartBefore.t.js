@@ -1,6 +1,6 @@
 /**
  * This is a scaffold for unit tests for the custom function for
- * `http.storefront.pages.global.request.after`.
+ * `http.storefront.pages.cart.request.before`.
  * Modify the test conditions below. You may:
  *  - add special assertions for code actions from Simulator.assert
  *  - create a mock context with Simulator.context() and modify it
@@ -13,12 +13,14 @@
 var Simulator = require('mozu-action-simulator');
 var assert = Simulator.assert;
 
-describe('http.commerce.orders.setFulFillmentInfo.before', function () {
+var actionName = 'http.storefront.pages.cart.request.before';
+
+describe('amazonCartBefore implementing http.storefront.pages.cart.request.before', function () {
 
   var action;
 
   before(function () {
-    action = require('../src/domains/commerce.orders/http.commerce.orders.setFulFillmentInfo.before');
+    action = require('../src/domains/storefront/amazonCartBefore');
   });
 
   it('runs successfully', function(done) {
@@ -29,7 +31,8 @@ describe('http.commerce.orders.setFulFillmentInfo.before', function () {
       done();
     };
 
-    var context = Simulator.context('http.commerce.orders.setFulFillmentInfo.before', callback);
+    var context = Simulator.context(actionName, callback);
+
     // modify context as necessary
 
     /*
@@ -41,7 +44,7 @@ describe('http.commerce.orders.setFulFillmentInfo.before', function () {
      var server = http.createServer(function(req, res) {
       context.request = req;
       context.response = res;
-      assert.ok(Simulator.simulate('http.storefront.pages.global.request.after', action, context, callback));
+      assert.ok(Simulator.simulate(actionName, action, context, callback));
      }).listen(9000);
      http.get('http://localhost:9000/', function(req, res) {
       // add the request body here
@@ -49,6 +52,6 @@ describe('http.commerce.orders.setFulFillmentInfo.before', function () {
 
     */
 
-    Simulator.simulate('http.commerce.orders.setFulFillmentInfo.before', action, context, callback);
+    Simulator.simulate(actionName, action, context, callback);
   });
 });

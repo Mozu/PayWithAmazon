@@ -74,6 +74,26 @@ var helper = module.exports = {
 	    }
 	    //console.log("Key: "+key, value.value );
 	    return value.value || value.Value;
+	},
+	addErrorToModel: function(context, callback, err) {
+	    console.log("Adding error to viewData", error);
+	    var message = error;
+	    if (error.statusText)
+	      message = error.statusText;
+	    else if (error.message){
+	      message = error.message;
+	      if (message.errorMessage)
+	        message = message.errorMessage;
+	    }
+	    else if (error.errorMessage)
+	      message = error.errorMessage;
+	    /*context.response.model.messages =   [ 
+	      {"message": message}
+	    ];*/
+	    context.response.viewData.model.messages =  [ 
+	      {"message": "'"+message+"'"}
+	    ];
+	    callback();
 	}
 
 };

@@ -250,7 +250,7 @@ var paymentHelper = require("./paymentHelper");
 
 function createOrderFromCart(cartId) {
   return orderClient.createOrderFromCart({ cartId: ''+cartId+''  }).then(function(order) {
-    console.log("Order created from cart", order);
+    console.log("Order created from cart");
     return order;
   }).then(function(order){
     console.log("Order fulfillmentInfo" ,order.fulfillmentInfo);
@@ -333,7 +333,7 @@ module.exports = function(context, callback) {
   self.validateAndProcess = function() {
       var params = helper.parseUrlParams(self.ctx);
 
-      if (!helper.isAmazonCheckout(self.ctx))  self.cb();
+      if (!helper.isAmazonCheckout(self.ctx) || (!helper.isCartPage(self.ctx)  && params.view == "amazon-checkout"))  self.cb();
       console.log(self.ctx.apiContext);
      
 
@@ -371,8 +371,8 @@ module.exports = function(context, callback) {
         self.ctx.response.redirect('/checkout/'+order.id+"?"+queryString);
         self.ctx.response.end();
       }).catch(function(e){
-        console.error(err);
-        self.cb(err);
+        console.error(e);
+        self.cb(e);
       });//.then(self.cb, self.cb);   
   };
 
@@ -435,7 +435,7 @@ module.exports = function(context, callback) {
         amazonPay.configure(config);
         return amazonPay.validateToken(addressConsentToken); 
     }).then(function(isTokenValid){
-        //if (!isTokenValid) self.cb();
+        
         console.log("isTokenValid", isTokenValid);
         if (isTokenValid) {
           console.log("Pay by Amazon token is valid...setting fulfilmment info");
@@ -541,6 +541,12 @@ module.exports = function(context, callback) {
           console.log("Close Aws order error", err);
         });
     }).then(self.cb, self.cb);
+  };
+
+  self.setError = function(context, callback, error) {
+    console.log(err);
+    context.cache.request.set("amazonError", err);
+    callback();
   };
 };
 
@@ -649,6 +655,26 @@ var helper = module.exports = {
 	    }
 	    //console.log("Key: "+key, value.value );
 	    return value.value || value.Value;
+	},
+	addErrorToModel: function(context, callback, err) {
+	    console.log("Adding error to viewData", error);
+	    var message = error;
+	    if (error.statusText)
+	      message = error.statusText;
+	    else if (error.message){
+	      message = error.message;
+	      if (message.errorMessage)
+	        message = message.errorMessage;
+	    }
+	    else if (error.errorMessage)
+	      message = error.errorMessage;
+	    /*context.response.model.messages =   [ 
+	      {"message": message}
+	    ];*/
+	    context.response.viewData.model.messages =  [ 
+	      {"message": "'"+message+"'"}
+	    ];
+	    callback();
 	}
 
 };

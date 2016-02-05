@@ -13,12 +13,12 @@
 var Simulator = require('mozu-action-simulator');
 var assert = Simulator.assert;
 
-describe('http.storefront.pages.global.request.after', function () {
+describe('http.commerce.orders.setFulFillmentInfo.before', function () {
 
   var action;
 
   before(function () {
-    action = require('../src/domains/storefront/http.storefront.pages.global.request.after');
+    action = require('../src/domains/commerce.orders/setFulFillmentInfoBefore');
   });
 
   it('runs successfully', function(done) {
@@ -29,8 +29,7 @@ describe('http.storefront.pages.global.request.after', function () {
       done();
     };
 
-    var context = Simulator.context('http.storefront.pages.global.request.after', callback);
-    context.request.url = "/checkout";
+    var context = Simulator.context('http.commerce.orders.setFulFillmentInfo.before', callback);
     // modify context as necessary
 
     /*
@@ -50,6 +49,6 @@ describe('http.storefront.pages.global.request.after', function () {
 
     */
 
-    Simulator.simulate('http.storefront.pages.global.request.after', action, context, callback);
+    Simulator.simulate('http.commerce.orders.setFulFillmentInfo.before', action, context, callback);
   });
 });

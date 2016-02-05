@@ -1,19 +1,14 @@
 {
   "exports": [
     {
-      "id": "embedded.commerce.orders.action.after",
+      "id": "amazonProcessOrderActionAtfer",
       "virtualPath": "./dist\\commerce.orders.manifest.all.js",
       "actionId": "embedded.commerce.orders.action.after"
     },
     {
-      "id": "http.commerce.orders.setFulFillmentInfo.before",
+      "id": "amazonSetFulfillmentInfo",
       "virtualPath": "./dist\\commerce.orders.manifest.all.js",
       "actionId": "http.commerce.orders.setFulFillmentInfo.before"
-    },
-    {
-      "id": "http.commerce.orders.setBillingInfo.before",
-      "virtualPath": "./dist\\commerce.orders.manifest.all.js",
-      "actionId": "http.commerce.orders.setBillingInfo.before"
     },
     {
       "id": "embedded.commerce.payments.action.performPaymentInteraction",
@@ -21,24 +16,34 @@
       "actionId": "embedded.commerce.payments.action.performPaymentInteraction"
     },
     {
-      "id": "http.commerce.settings.checkout.paymentsettings.updatePaymentSettings.before",
+      "id": "amazonSettingValidator",
       "virtualPath": "./dist\\commerce.settings.manifest.all.js",
       "actionId": "http.commerce.settings.checkout.paymentsettings.updatePaymentSettings.before"
     },
     {
-      "id": "embedded.platform.applications.install",
+      "id": "amazonInstall",
       "virtualPath": "./dist\\platform.applications.manifest.all.js",
       "actionId": "embedded.platform.applications.install"
     },
     {
-      "id": "http.storefront.pages.global.request.before",
+      "id": "amazonCartBefore",
       "virtualPath": "./dist\\storefront.manifest.all.js",
-      "actionId": "http.storefront.pages.global.request.before"
+      "actionId": "http.storefront.pages.cart.request.before"
     },
     {
-      "id": "http.storefront.pages.global.request.after",
+      "id": "amamzonCartAfter",
       "virtualPath": "./dist\\storefront.manifest.all.js",
-      "actionId": "http.storefront.pages.global.request.after"
+      "actionId": "http.storefront.pages.cart.request.after"
+    },
+    {
+      "id": "amazonCheckoutBefore",
+      "virtualPath": "./dist\\storefront.manifest.all.js",
+      "actionId": "http.storefront.pages.checkout.request.before"
+    },
+    {
+      "id": "amazonCheckoutAfter",
+      "virtualPath": "./dist\\storefront.manifest.all.js",
+      "actionId": "http.storefront.pages.checkout.request.after"
     }
   ]
 }

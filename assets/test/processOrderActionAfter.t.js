@@ -1,6 +1,6 @@
 /**
  * This is a scaffold for unit tests for the custom function for
- * `embedded.platform.applications.install`.
+ * `embedded.commerce.orders.action.after`.
  * Modify the test conditions below. You may:
  *  - add special assertions for code actions from Simulator.assert
  *  - create a mock context with Simulator.context() and modify it
@@ -12,12 +12,12 @@
 var Simulator = require('mozu-action-simulator');
 var assert = Simulator.assert;
 
-describe('embedded.platform.applications.install', function () {
+describe('embedded.commerce.orders.action.after', function () {
 
   var action;
 
   before(function () {
-    action = require('../src/domains/platform.applications/embedded.platform.applications.install');
+    action = require('../src/domains/commerce.orders/processOrderActionAfter');
   });
 
   it('runs successfully', function(done) {
@@ -28,11 +28,11 @@ describe('embedded.platform.applications.install', function () {
       done();
     };
 
-    var context = Simulator.context('embedded.platform.applications.install', callback);
-    context.apiContext = {tenantId : "18185"};
+    var context = Simulator.context('embedded.commerce.orders.action.after', callback);
+
     // modify context as necessary
 
 
-    Simulator.simulate('embedded.platform.applications.install', action, context, callback);
+    Simulator.simulate('embedded.commerce.orders.action.after', action, context, callback);
   });
 });
