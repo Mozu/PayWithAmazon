@@ -103,6 +103,26 @@ var helper = module.exports = {
 	    }
 	    //console.log("Key: "+key, value.value );
 	    return value.value || value.Value;
+	},
+	addErrorToModel: function(context, callback, err) {
+	    console.log("Adding error to viewData", error);
+	    var message = error;
+	    if (error.statusText)
+	      message = error.statusText;
+	    else if (error.message){
+	      message = error.message;
+	      if (message.errorMessage)
+	        message = message.errorMessage;
+	    }
+	    else if (error.errorMessage)
+	      message = error.errorMessage;
+	    /*context.response.model.messages =   [ 
+	      {"message": message}
+	    ];*/
+	    context.response.viewData.model.messages =  [ 
+	      {"message": "'"+message+"'"}
+	    ];
+	    callback();
 	}
 
 };
@@ -296,13 +316,13 @@ module.exports = function(context, callback) {
 },{"../../amazon/constants":1,"../../amazon/helper":2,"mozu-action-helpers/installers/actions":31,"mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings":35,"mozu-node-sdk/clients/platform/tenant":37,"mozu-node-sdk/constants":39,"underscore":62}],4:[function(require,module,exports){
 module.exports = {
   
-  'embedded.platform.applications.install': {
+  'amazonInstall': {
       actionName: 'embedded.platform.applications.install',
-      customFunction: require('./domains/platform.applications/embedded.platform.applications.install')
+      customFunction: require('./domains/platform.applications/amazonInstall')
   }
 };
 
-},{"./domains/platform.applications/embedded.platform.applications.install":3}],5:[function(require,module,exports){
+},{"./domains/platform.applications/amazonInstall":3}],5:[function(require,module,exports){
 // http://wiki.commonjs.org/wiki/Unit_Testing/1.0
 //
 // THIS IS NOT TESTED NOR LIKELY TO WORK OUTSIDE V8!
