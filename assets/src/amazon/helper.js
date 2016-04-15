@@ -19,7 +19,7 @@ var helper = module.exports = {
 	},
 	validateUserSession : function(context) {
 		var user = context.items.pageContext.user;
-		if ( !user.isAnonymous && !user.IsAuthenticated ) 
+		if ( !user.isAnonymous && !user.IsAuthenticated )
 		{
 			context.response.redirect('/user/login?returnUrl=' + encodeURIComponent(context.request.url));
 			return context.response.end();
@@ -57,7 +57,7 @@ var helper = module.exports = {
 	  		.then(function(settings){
 			    return orderClient.getOrder({orderId: orderId})
 			    .then(function(order) {
-			      return {orderNumber: order.orderNumber, websiteName: settings.websiteName};
+			      return {orderNumber: order.orderNumber, websiteName: settings.websiteName, payments: order.payments};
 			    });
 	  		});
 	},
@@ -87,10 +87,10 @@ var helper = module.exports = {
 	    }
 	    else if (error.errorMessage)
 	      message = error.errorMessage;
-	    /*context.response.model.messages =   [ 
+	    /*context.response.model.messages =   [
 	      {"message": message}
 	    ];*/
-	    context.response.viewData.model.messages =  [ 
+	    context.response.viewData.model.messages =  [
 	      {"message": "'"+message+"'"}
 	    ];
 	    callback();

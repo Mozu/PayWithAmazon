@@ -28,7 +28,7 @@ var sortParams = function(params) {
 	var keys = _.keys(params).sort();
 
 	var sortObj = [];
-	_.each(keys, function(key) {  
+	_.each(keys, function(key) {
 	    sortObj[key] = params[key];
 	});
 	return sortObj;
@@ -37,16 +37,16 @@ var sortParams = function(params) {
 var buildParamString = function(params, uriEncodeValues) {
 	var keys = _.keys(params).sort();
 	var paramStr = "";
-	_.each(keys, function(key) {  
+	_.each(keys, function(key) {
 		if (paramStr !== "")
 			paramStr += "&";
 	    paramStr += key+"=";
-	    if (uriEncodeValues) 
+	    if (uriEncodeValues)
 	    	paramStr += encodeURIComponent(params[key]);
 	    else
 	    	paramStr += params[key];
 	});
-	return paramStr;	
+	return paramStr;
 };
 
 
@@ -67,7 +67,7 @@ module.exports = function() {
 
 	self.configure = function(config) {
 		self.config = config;
-		self.config.profileEnvt = config.isSandbox ? "api.sandbox" : "api";		
+		self.config.profileEnvt = config.isSandbox ? "api.sandbox" : "api";
 		path = config.isSandbox ? '/OffAmazonPayments_Sandbox' : '/OffAmazonPayments';
 		self.config.path = path + "/" + version;
 		self.config.server = mwsServiceUrls[regionMappings[config.region]];
@@ -94,12 +94,12 @@ module.exports = function() {
 		var signature = crypto.createHmac("sha256", self.config.mwsSecret).update(stringToSign).digest("base64");
 		console.log("Aws Signature",signature);
 		params.Signature = encodeURIComponent(signature);
-		
+
 
 		var promise = new Promise(function(resolve, reject) {
-			needle.post("https://"+self.config.server+self.config.path, 
+			needle.post("https://"+self.config.server+self.config.path,
 			buildParamString(params, false),
-			{json: false, parse: true}, 
+			{json: false, parse: true},
 			function(err, response, body) {
 				if (response.statusCode != 200)
 					reject(parseErrorToJson(response.body));
@@ -128,6 +128,8 @@ module.exports = function() {
 	self.getProfile = function(access_token) {
 		//access_token = encodeURIComponent(access_token);
 		var promise = new Promise(function(resolve, reject) {
+      console.log('get profile to validate access token');
+
 			needle.get("https://"+self.config.profileEnvt+"."+profileEndpointUrls[self.config.region]+"/user/profile",{ headers: {'Authorization':'bearer '+access_token}},
 				function(err, response, body){
 					if (response.statusCode != 200)
@@ -200,7 +202,7 @@ module.exports = function() {
 		params['OrderReferenceAttributes.SellerOrderAttributes.StoreName']=orderDetails.websiteName;
 		params.TransactionTimeout = 0;
 
-		if (declineCapture)			
+		if (declineCapture)
 			params.SellerCaptureNote = '{"SandboxSimulation": {"State":"Declined", "ReasonCode":"AmazonRejected"}}';
 
 		console.log("Requesting AWS Capture", params);

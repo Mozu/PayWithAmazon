@@ -29,7 +29,7 @@ var sortParams = function(params) {
 	var keys = _.keys(params).sort();
 
 	var sortObj = [];
-	_.each(keys, function(key) {  
+	_.each(keys, function(key) {
 	    sortObj[key] = params[key];
 	});
 	return sortObj;
@@ -38,16 +38,16 @@ var sortParams = function(params) {
 var buildParamString = function(params, uriEncodeValues) {
 	var keys = _.keys(params).sort();
 	var paramStr = "";
-	_.each(keys, function(key) {  
+	_.each(keys, function(key) {
 		if (paramStr !== "")
 			paramStr += "&";
 	    paramStr += key+"=";
-	    if (uriEncodeValues) 
+	    if (uriEncodeValues)
 	    	paramStr += encodeURIComponent(params[key]);
 	    else
 	    	paramStr += params[key];
 	});
-	return paramStr;	
+	return paramStr;
 };
 
 
@@ -68,7 +68,7 @@ module.exports = function() {
 
 	self.configure = function(config) {
 		self.config = config;
-		self.config.profileEnvt = config.isSandbox ? "api.sandbox" : "api";		
+		self.config.profileEnvt = config.isSandbox ? "api.sandbox" : "api";
 		path = config.isSandbox ? '/OffAmazonPayments_Sandbox' : '/OffAmazonPayments';
 		self.config.path = path + "/" + version;
 		self.config.server = mwsServiceUrls[regionMappings[config.region]];
@@ -95,12 +95,12 @@ module.exports = function() {
 		var signature = crypto.createHmac("sha256", self.config.mwsSecret).update(stringToSign).digest("base64");
 		console.log("Aws Signature",signature);
 		params.Signature = encodeURIComponent(signature);
-		
+
 
 		var promise = new Promise(function(resolve, reject) {
-			needle.post("https://"+self.config.server+self.config.path, 
+			needle.post("https://"+self.config.server+self.config.path,
 			buildParamString(params, false),
-			{json: false, parse: true}, 
+			{json: false, parse: true},
 			function(err, response, body) {
 				if (response.statusCode != 200)
 					reject(parseErrorToJson(response.body));
@@ -129,6 +129,8 @@ module.exports = function() {
 	self.getProfile = function(access_token) {
 		//access_token = encodeURIComponent(access_token);
 		var promise = new Promise(function(resolve, reject) {
+      console.log('get profile to validate access token');
+
 			needle.get("https://"+self.config.profileEnvt+"."+profileEndpointUrls[self.config.region]+"/user/profile",{ headers: {'Authorization':'bearer '+access_token}},
 				function(err, response, body){
 					if (response.statusCode != 200)
@@ -201,7 +203,7 @@ module.exports = function() {
 		params['OrderReferenceAttributes.SellerOrderAttributes.StoreName']=orderDetails.websiteName;
 		params.TransactionTimeout = 0;
 
-		if (declineCapture)			
+		if (declineCapture)
 			params.SellerCaptureNote = '{"SandboxSimulation": {"State":"Declined", "ReasonCode":"AmazonRejected"}}';
 
 		console.log("Requesting AWS Capture", params);
@@ -235,6 +237,7 @@ module.exports = function() {
 	};
 	return self;
 };
+
 },{"crypto":62,"moment":185,"needle":217,"underscore":260}],2:[function(require,module,exports){
 var url = require("url");
 var qs = require("querystring");
@@ -274,22 +277,22 @@ function createOrderFromCart(cartId) {
            console.log("AWS order is not canceled, returning order");
            return order;
         }
-    });    
+    });
   });
 }
 
 
 function getFulfillmentInfo(awsOrder,data) {
- 
+
   var orderDetails = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails;
   var destinationPath = orderDetails.Destination.PhysicalDestination;
   try {
     var name =  destinationPath.Name;
     var nameSplit = name.split(" ");
     var phone = destinationPath.Phone;
-    return { "fulfillmentContact" : { 
-              "firstName" : (nameSplit[0] ? nameSplit[0] : "N/A"), 
-              "lastNameOrSurname" : (nameSplit[1] ? nameSplit[1] : "N/A"), 
+    return { "fulfillmentContact" : {
+              "firstName" : (nameSplit[0] ? nameSplit[0] : "N/A"),
+              "lastNameOrSurname" : (nameSplit[1] ? nameSplit[1] : "N/A"),
               "email" : orderDetails.Buyer.Email,
               "phoneNumbers" : {
                 "home" : (phone ? phone : "N/A")
@@ -335,13 +338,13 @@ module.exports = function(context, callback) {
 
       if (!helper.isAmazonCheckout(self.ctx) || (!helper.isCartPage(self.ctx)  && params.view == "amazon-checkout"))  self.cb();
       console.log(self.ctx.apiContext);
-     
+
 
       return paymentHelper.getPaymentConfig(self.ctx).
-      then(function(config) { 
+      then(function(config) {
         if (!config.isEnabled) return self.cb();
         amazonPay.configure(config);
-        return amazonPay.validateToken(params.access_token); 
+        return amazonPay.validateToken(params.access_token);
       }).then(function(isTokenValid) {
         console.log("Is Amazon token valid", isTokenValid);
 
@@ -357,7 +360,7 @@ module.exports = function(context, callback) {
           console.log("Amazon token and expried, redirecting to cart");
           self.ctx.response.redirect('/cart');
           return self.ctx.response.end();
-        } 
+        }
       }).then(function(order) {
         console.log("Order created from cart", order.id);
         delete params.cartId;
@@ -367,13 +370,13 @@ module.exports = function(context, callback) {
               queryString += "&";
             queryString += key +"=" + params[key];
         });
-        
+
         self.ctx.response.redirect('/checkout/'+order.id+"?"+queryString);
         self.ctx.response.end();
       }).catch(function(e){
         console.error(e);
         self.cb(e);
-      });//.then(self.cb, self.cb);   
+      });//.then(self.cb, self.cb);
   };
 
   //Add view data to control theme flow
@@ -384,10 +387,10 @@ module.exports = function(context, callback) {
     if (!helper.isAmazonCheckout(self.ctx)) return self.cb();
 
     paymentHelper.getPaymentConfig(self.ctx).
-    then(function(config) { 
+    then(function(config) {
        if (!config.isEnabled) return self.cb();
         amazonPay.configure(config);
-        return amazonPay.validateToken(params.access_token); 
+        return amazonPay.validateToken(params.access_token);
       }).then(function(isTokenValid) {
         console.log("is token valid", isTokenValid);
         if (!isTokenValid) {
@@ -422,20 +425,20 @@ module.exports = function(context, callback) {
     var awsReferenceId = data.awsReferenceId;
     var addressConsentToken = data.addressAuthorizationToken;
 
-    if (!awsReferenceId && !addressConsentToken) { 
+    if (!awsReferenceId && !addressConsentToken) {
       console.log("not an amazon order...");
-      return self.cb(); 
+      return self.cb();
     }
-    console.log("Reading payment settings for "+self.nameSpace+"~"+paymentConstants.PAYMENTSETTINGID);
+    console.log("Reading payment settings for "+paymentConstants.PAYMENTSETTINGID);
 
 
     paymentHelper.getPaymentConfig(self.ctx)
     .then(function(config) {
         if (!config.isEnabled) return self.cb();
         amazonPay.configure(config);
-        return amazonPay.validateToken(addressConsentToken); 
+        return amazonPay.validateToken(addressConsentToken);
     }).then(function(isTokenValid){
-        
+
         console.log("isTokenValid", isTokenValid);
         if (isTokenValid) {
           console.log("Pay by Amazon token is valid...setting fulfilmment info");
@@ -458,12 +461,18 @@ module.exports = function(context, callback) {
   //Process payment interactions
   self.processPayment = function() {
     var paymentAction = self.ctx.get.paymentAction();
-    var payment = self.ctx.get.payment();    
+    var payment = self.ctx.get.payment();
 
     console.log("Payment Action", paymentAction);
     console.log("Payment", payment);
     console.log("apiContext", self.ctx.apiContext);
     if (payment.paymentType !== paymentConstants.PAYMENTSETTINGID) return self.cb();
+
+    if (!payment.externalTransactionId)
+     payment.externalTransactionId = payment.billingInfo.externalTransactionId;
+    if (!payment.externalTransactionId)
+      throw new Error("PayWith Amazon Referenceid is missing");
+
 
     if (self.ctx.configuration && self.ctx.configuration.payment)
       declineCapture =  self.ctx.configuration.payment.declineCapture === true;
@@ -600,7 +609,7 @@ var helper = module.exports = {
 	},
 	validateUserSession : function(context) {
 		var user = context.items.pageContext.user;
-		if ( !user.isAnonymous && !user.IsAuthenticated ) 
+		if ( !user.isAnonymous && !user.IsAuthenticated )
 		{
 			context.response.redirect('/user/login?returnUrl=' + encodeURIComponent(context.request.url));
 			return context.response.end();
@@ -638,7 +647,7 @@ var helper = module.exports = {
 	  		.then(function(settings){
 			    return orderClient.getOrder({orderId: orderId})
 			    .then(function(order) {
-			      return {orderNumber: order.orderNumber, websiteName: settings.websiteName};
+			      return {orderNumber: order.orderNumber, websiteName: settings.websiteName, payments: order.payments};
 			    });
 	  		});
 	},
@@ -668,16 +677,17 @@ var helper = module.exports = {
 	    }
 	    else if (error.errorMessage)
 	      message = error.errorMessage;
-	    /*context.response.model.messages =   [ 
+	    /*context.response.model.messages =   [
 	      {"message": message}
 	    ];*/
-	    context.response.viewData.model.messages =  [ 
+	    context.response.viewData.model.messages =  [
 	      {"message": "'"+message+"'"}
 	    ];
 	    callback();
 	}
 
 };
+
 },{"./constants":3,"guid":94,"mozu-action-helpers/get-app-info":186,"mozu-node-sdk/clients/commerce/order":189,"mozu-node-sdk/clients/commerce/settings/generalSettings":192,"mozu-node-sdk/constants":194,"querystring":236,"underscore":260,"url":262}],5:[function(require,module,exports){
 var PaymentSettings = require("mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings");
 var helper = require("./helper");
@@ -700,23 +710,23 @@ var paymentHelper = module.exports = {
 	getConfig: function(context, paymentSettings) {
 
 		var orderProcessing = helper.getValue(paymentSettings, paymentConstants.ORDERPROCESSING);
-	       
+
         var captureOnAuthorize = (orderProcessing == paymentConstants.CAPTUREONSUBMIT);
         var awsConfig =  context.getSecureAppData('awsConfig');
         if (!awsConfig) return {};
 
         var environment = helper.getValue(paymentSettings, paymentConstants.ENVIRONMENT) ;
         var config = {
-        				"isSandbox" : (environment === "sandbox"), 
+        				"isSandbox" : (environment === "sandbox"),
         				"environment" : environment,
-                      	"mwsAccessKeyId" : awsConfig.mwsAccessKeyId, 
+                      	"mwsAccessKeyId" : awsConfig.mwsAccessKeyId,
                         "mwsSecret" : awsConfig.mwsSecret,
                         "mwsAuthToken" : helper.getValue(paymentSettings, paymentConstants.AUTHTOKEN),
                         "sellerId" : helper.getValue(paymentSettings, paymentConstants.SELLERID),
                         "region" : helper.getValue(paymentSettings, paymentConstants.REGION),
                         "clientId" : helper.getValue(paymentSettings, paymentConstants.CLIENTID),
-                        "captureOnAuthorize": captureOnAuthorize, 
-                        "isEnabled": paymentSettings.isEnabled 
+                        "captureOnAuthorize": captureOnAuthorize,
+                        "isEnabled": paymentSettings.isEnabled
                     };
 
     	return config;
@@ -726,7 +736,7 @@ var paymentHelper = module.exports = {
 		var paymentSettings = context.request.body;
 
 		var pwaSettings = _.findWhere(paymentSettings.ExternalPaymentWorkflowDefinitions, {FullyQualifiedName : helper.getPaymentFQN(context)});
-		
+
   		if (!pwaSettings || !pwaSettings.IsEnabled) callback();
 
   		var config = self.getConfig(context, pwaSettings);
@@ -786,7 +796,7 @@ var paymentHelper = module.exports = {
 	      context.exec.setPaymentAmountRequested(paymentAction.amount);
 
 	    var interaction  =  {status: paymentResult.status, interactionType: interactionType};
-	    if (paymentResult.amount) 
+	    if (paymentResult.amount)
 	      interaction.amount = paymentResult.amount;
 
 	    if (paymentResult.awsTransactionId)
@@ -816,7 +826,7 @@ var paymentHelper = module.exports = {
 	      context.exec.setPaymentAmountCollected(paymentResult.amount);
 	},
 	createNewPayment : function(context,config, paymentAction, payment) {
-	
+
 		var newStatus = { status : paymentConstants.NEW, amount: paymentAction.amount};
 		console.log(newStatus);
 		if (paymentAction.amount === 0)
@@ -832,7 +842,11 @@ var paymentHelper = module.exports = {
 			  console.log("Order Details", orderDetails);
 			  return orderDetails;
 			}).then(function(orderDetails){
-				return amazonPay.setOrderDetails(paymentAction.externalTransactionId, orderDetails)
+        var existingPayment = _.find(orderDetails.payments,function(payment) { return payment.paymentType === paymentConstants.PAYMENTSETTINGID  && payment.paymentWorkflow === paymentConstants.PAYMENTSETTINGID && payment.status === "Collected";   });
+
+        if (existingPayment) return newStatus;
+
+        return amazonPay.setOrderDetails(paymentAction.externalTransactionId, orderDetails)
 				.then(
 				    function(result) {
 				      return newStatus;
@@ -857,7 +871,7 @@ var paymentHelper = module.exports = {
 
 			return amazonPay.confirmOrder(payment.externalTransactionId)
 			.then(function() {
-		        return amazonPay.requestAuthorzation(payment.externalTransactionId, payment.amountRequested, 
+		        return amazonPay.requestAuthorzation(payment.externalTransactionId, payment.amountRequested,
 		          paymentAction.currencyCode, payment.id, config.captureOnAuthorize, declineAuth)
 		        .then(function(authResult) {
 		          var authDetails = authResult.AuthorizeResponse.AuthorizeResult.AuthorizationDetails;
@@ -874,8 +888,8 @@ var paymentHelper = module.exports = {
 		          var response = {
 		                awsTransactionId: awsTransactionId,
 		                captureId: captureId,
-		                responseCode: 200, 
-		                responseText:  state, 
+		                responseCode: 200,
+		                responseText:  state,
 		                status: status,
 		                amount: payment.amountRequested,
 		                captureOnAuthorize: captureOnAuthorize
@@ -887,11 +901,11 @@ var paymentHelper = module.exports = {
 		          return {status : paymentConstants.DECLINED, responseCode: err.code, responseText: err.message};
 		        });
 			}).catch(function(err) {
-				console.error(err);
-				return { status : paymentConstants.FAILED, responseText: err};
+				console.error("err", err);
+				return { status : paymentConstants.FAILED, responseText: err.message};
 			});
 		} catch(e) {
-			console.error(e);
+			console.error("exception", e);
   			return {status : paymentConstants.DECLINED, responseText: e};
 		}
 	},
@@ -901,7 +915,7 @@ var paymentHelper = module.exports = {
 			amazonPay.configure(config);
 	  		return this.createNewPayment(context, config, paymentAction, payment)
 	  		.then(function(result) {
-	      		if (result.status == paymentConstants.FAILED) return result; 
+	      		if (result.status == paymentConstants.FAILED) return result;
 	            return self.authorizePayment(context, paymentAction, payment);
 		    }, function(err) {
 		        console.log("Amazon confirm order failed", err);
@@ -918,7 +932,7 @@ var paymentHelper = module.exports = {
 	captureAmount: function (context, config, paymentAction, payment) {
 		var self = this;
 		amazonPay.configure(config);
-		var declineCapture = false; 
+		var declineCapture = false;
 		if (context.configuration && context.configuration.payment)
 			declineCapture =  context.configuration.payment.declineCapture === true;
 
@@ -926,8 +940,8 @@ var paymentHelper = module.exports = {
 			orderDetails.requestedAmount = payment.requestedAmount;
 			orderDetails.captureAmount= paymentAction.amount;
 			orderDetails.currencyCode= paymentAction.currencyCode;
-			 
-			  
+
+
 			console.log("Order details", orderDetails);
 
 			if (paymentAction.manualGatewayInteraction) {
@@ -985,7 +999,7 @@ var paymentHelper = module.exports = {
 			console.log("AWS Refund, previous capturedInteraction", capturedInteraction);
 			if (!capturedInteraction) {
 				return {status : paymentConstants.FAILED, responseCode: "InvalidRequest", responseText: "Payment has not been captured to issue refund"};
-			} 
+			}
 
 			if (paymentAction.manualGatewayInteraction) {
 				console.log("Manual credit...dont send to amazon");
@@ -999,7 +1013,7 @@ var paymentHelper = module.exports = {
 			orderDetails.id = helper.getUniqueId();
 
 
-			console.log("Refund details", orderDetails);     
+			console.log("Refund details", orderDetails);
 			return amazonPay.refund(capturedInteraction.gatewayTransactionId, orderDetails).then(
 			function(refundResult) {
 				var refundDetails = refundResult.RefundResponse.RefundResult.RefundDetails;
@@ -1041,10 +1055,10 @@ var paymentHelper = module.exports = {
 	    console.log("Void Payment - Captured interaction", capturedInteraction);
 	    if (capturedInteraction) {
 	      return {status : paymentConstants.FAILED, responseCode: "InvalidRequest", responseText: "Payment with captures cannot be voided. Please issue a refund"};
-	    } 
+	    }
 
 	    var authorizedInteraction = self.getInteractionByStatus(payment.interactions,paymentConstants.AUTHORIZED);
-	    if (!authorizedInteraction) 
+	    if (!authorizedInteraction)
 	      return {status: paymentConstants.VOIDED};
 
 	    return amazonPay.cancelOrder(payment.externalTransactionId).then(function(result) {
@@ -1087,6 +1101,7 @@ var paymentHelper = module.exports = {
 
 
 };
+
 },{"./amazonpaysdk":1,"./constants":3,"./helper":4,"mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings":191,"underscore":260}],6:[function(require,module,exports){
 arguments[4][5][0].apply(exports,arguments)
 },{"./amazonpaysdk":1,"./constants":3,"./helper":4,"dup":5,"mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings":191,"underscore":260}],7:[function(require,module,exports){

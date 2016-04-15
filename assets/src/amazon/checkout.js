@@ -36,22 +36,22 @@ function createOrderFromCart(cartId) {
            console.log("AWS order is not canceled, returning order");
            return order;
         }
-    });    
+    });
   });
 }
 
 
 function getFulfillmentInfo(awsOrder,data) {
- 
+
   var orderDetails = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails;
   var destinationPath = orderDetails.Destination.PhysicalDestination;
   try {
     var name =  destinationPath.Name;
     var nameSplit = name.split(" ");
     var phone = destinationPath.Phone;
-    return { "fulfillmentContact" : { 
-              "firstName" : (nameSplit[0] ? nameSplit[0] : "N/A"), 
-              "lastNameOrSurname" : (nameSplit[1] ? nameSplit[1] : "N/A"), 
+    return { "fulfillmentContact" : {
+              "firstName" : (nameSplit[0] ? nameSplit[0] : "N/A"),
+              "lastNameOrSurname" : (nameSplit[1] ? nameSplit[1] : "N/A"),
               "email" : orderDetails.Buyer.Email,
               "phoneNumbers" : {
                 "home" : (phone ? phone : "N/A")
@@ -97,13 +97,13 @@ module.exports = function(context, callback) {
 
       if (!helper.isAmazonCheckout(self.ctx) || (!helper.isCartPage(self.ctx)  && params.view == "amazon-checkout"))  self.cb();
       console.log(self.ctx.apiContext);
-     
+
 
       return paymentHelper.getPaymentConfig(self.ctx).
-      then(function(config) { 
+      then(function(config) {
         if (!config.isEnabled) return self.cb();
         amazonPay.configure(config);
-        return amazonPay.validateToken(params.access_token); 
+        return amazonPay.validateToken(params.access_token);
       }).then(function(isTokenValid) {
         console.log("Is Amazon token valid", isTokenValid);
 
@@ -119,7 +119,7 @@ module.exports = function(context, callback) {
           console.log("Amazon token and expried, redirecting to cart");
           self.ctx.response.redirect('/cart');
           return self.ctx.response.end();
-        } 
+        }
       }).then(function(order) {
         console.log("Order created from cart", order.id);
         delete params.cartId;
@@ -129,13 +129,13 @@ module.exports = function(context, callback) {
               queryString += "&";
             queryString += key +"=" + params[key];
         });
-        
+
         self.ctx.response.redirect('/checkout/'+order.id+"?"+queryString);
         self.ctx.response.end();
       }).catch(function(e){
         console.error(e);
         self.cb(e);
-      });//.then(self.cb, self.cb);   
+      });//.then(self.cb, self.cb);
   };
 
   //Add view data to control theme flow
@@ -146,10 +146,10 @@ module.exports = function(context, callback) {
     if (!helper.isAmazonCheckout(self.ctx)) return self.cb();
 
     paymentHelper.getPaymentConfig(self.ctx).
-    then(function(config) { 
+    then(function(config) {
        if (!config.isEnabled) return self.cb();
         amazonPay.configure(config);
-        return amazonPay.validateToken(params.access_token); 
+        return amazonPay.validateToken(params.access_token);
       }).then(function(isTokenValid) {
         console.log("is token valid", isTokenValid);
         if (!isTokenValid) {
@@ -184,20 +184,20 @@ module.exports = function(context, callback) {
     var awsReferenceId = data.awsReferenceId;
     var addressConsentToken = data.addressAuthorizationToken;
 
-    if (!awsReferenceId && !addressConsentToken) { 
+    if (!awsReferenceId && !addressConsentToken) {
       console.log("not an amazon order...");
-      return self.cb(); 
+      return self.cb();
     }
-    console.log("Reading payment settings for "+self.nameSpace+"~"+paymentConstants.PAYMENTSETTINGID);
+    console.log("Reading payment settings for "+paymentConstants.PAYMENTSETTINGID);
 
 
     paymentHelper.getPaymentConfig(self.ctx)
     .then(function(config) {
         if (!config.isEnabled) return self.cb();
         amazonPay.configure(config);
-        return amazonPay.validateToken(addressConsentToken); 
+        return amazonPay.validateToken(addressConsentToken);
     }).then(function(isTokenValid){
-        
+
         console.log("isTokenValid", isTokenValid);
         if (isTokenValid) {
           console.log("Pay by Amazon token is valid...setting fulfilmment info");
@@ -220,12 +220,18 @@ module.exports = function(context, callback) {
   //Process payment interactions
   self.processPayment = function() {
     var paymentAction = self.ctx.get.paymentAction();
-    var payment = self.ctx.get.payment();    
+    var payment = self.ctx.get.payment();
 
     console.log("Payment Action", paymentAction);
     console.log("Payment", payment);
     console.log("apiContext", self.ctx.apiContext);
     if (payment.paymentType !== paymentConstants.PAYMENTSETTINGID) return self.cb();
+
+    if (!payment.externalTransactionId)
+     payment.externalTransactionId = payment.billingInfo.externalTransactionId;
+    if (!payment.externalTransactionId)
+      throw new Error("PayWith Amazon Referenceid is missing");
+
 
     if (self.ctx.configuration && self.ctx.configuration.payment)
       declineCapture =  self.ctx.configuration.payment.declineCapture === true;
