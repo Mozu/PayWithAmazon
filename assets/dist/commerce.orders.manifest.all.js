@@ -666,22 +666,26 @@ var helper = module.exports = {
 	    return value.value || value.Value;
 	},
 	addErrorToModel: function(context, callback, err) {
-	    console.log("Adding error to viewData", error);
-	    var message = error;
+	    console.log("Adding error to viewData", err);
+	    var message = err;
 	    if (error.statusText)
-	      message = error.statusText;
-	    else if (error.message){
-	      message = error.message;
+	      message = err.statusText;
+      else if (err.originalError) {
+          console.log("originalError", err.originalError);
+          if (err.originalError.items && err.originalError.items.length > 0)
+            message = err.originalError.items[0].message;
+          else
+           message = err.originalError.message;
+      }
+	    else if (err.message){
+	      message = err.message;
 	      if (message.errorMessage)
 	        message = message.errorMessage;
 	    }
-	    else if (error.errorMessage)
-	      message = error.errorMessage;
-	    /*context.response.model.messages =   [
-	      {"message": message}
-	    ];*/
+	    else if (err.errorMessage)
+	      message = err.errorMessage;
 	    context.response.viewData.model.messages =  [
-	      {"message": "'"+message+"'"}
+	      {"message": message}
 	    ];
 	    callback();
 	}
