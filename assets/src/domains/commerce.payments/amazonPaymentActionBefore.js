@@ -64,28 +64,49 @@
  */
 
  var paymentConstants = require("../../amazon/constants");
+ var AmazonCheckout = require("../../amazon/checkout");
  var _ = require("underscore");
 
 module.exports = function(context, callback) {
     var payment = context.get.payment();
+    var paymentAction = context.get.paymentAction();
   if (payment.paymentType !== paymentConstants.PAYMENTSETTINGID  && payment.paymentWorkflow !== paymentConstants.PAYMENTSETTINGID)
     callback();
   var order = context.get.order();
+
+
 
   var existingPayment = _.find(order.payments,function(payment) {
     return payment.paymentType === paymentConstants.PAYMENTSETTINGID  &&
             payment.paymentWorkflow === paymentConstants.PAYMENTSETTINGID &&
             payment.status === "Collected";   });
 
+
   var billingInfo = context.get.payment().billingInfo;
   if (existingPayment) {
     billingInfo.externalTransactionId = existingPayment.externalTransactionId;
     billingInfo.data = existingPayment.data;
     context.exec.setExternalTransactionId(billingInfo.externalTransactionId);
+    updateBillingInfo(context, callback, billingInfo);
   } else {
-    billingInfo.externalTransactionId = context.get.payment().externalTransactionId;
+    if (payment.data && payment.data.awsData && paymentAction.actionName === "CreatePayment") {
+    //Get Billing from amazon
+      var amazonCheckout = new AmazonCheckout(context, callback);
+      amazonCheckout.getBillingInfo(payment.data.awsData, billingInfo.billingContact)
+      .then(function(billingContact) {
+        billingInfo.billingContact = billingContact;
+        billingInfo.externalTransactionId = context.get.payment().externalTransactionId;
+        context.exec.removePaymentData("awsData");
+        updateBillingInfo(context, callback, billingInfo);
+      });
+    } else {
+      updateBillingInfo(context, callback, billingInfo);
+    }
   }
-  context.exec.setBillingInfo(billingInfo);
-
-  callback();
 };
+
+
+function updateBillingInfo(context, callback, billingInfo) {
+    context.exec.setBillingInfo(billingInfo);
+     callback();
+}

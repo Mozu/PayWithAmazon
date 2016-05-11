@@ -263,9 +263,11 @@ module.exports = {
 	CAPTURED: "Captured",
 	CREDITED: "Credited",
 	CREDITPENDING: "CreditPending",
-	VOIDED: "Voided"
+	VOIDED: "Voided",
+  BILLINGADDRESS: "billingAddressOption"
 
 };
+
 },{}],3:[function(require,module,exports){
 
 var getAppInfo = require('mozu-action-helpers/get-app-info');
@@ -409,7 +411,8 @@ var paymentHelper = module.exports = {
                         "region" : helper.getValue(paymentSettings, paymentConstants.REGION),
                         "clientId" : helper.getValue(paymentSettings, paymentConstants.CLIENTID),
                         "captureOnAuthorize": captureOnAuthorize,
-                        "isEnabled": paymentSettings.isEnabled
+                        "isEnabled": paymentSettings.isEnabled,
+                        "billingType" : helper.getValue(paymentSettings, paymentConstants.BILLINGADDRESS)
                     };
 
     	return config;

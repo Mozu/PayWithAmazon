@@ -35,7 +35,8 @@ var paymentHelper = module.exports = {
                         "region" : helper.getValue(paymentSettings, paymentConstants.REGION),
                         "clientId" : helper.getValue(paymentSettings, paymentConstants.CLIENTID),
                         "captureOnAuthorize": captureOnAuthorize,
-                        "isEnabled": paymentSettings.isEnabled
+                        "isEnabled": paymentSettings.isEnabled,
+                        "billingType" : helper.getValue(paymentSettings, paymentConstants.BILLINGADDRESS)
                     };
 
     	return config;

@@ -282,17 +282,15 @@ function createOrderFromCart(cartId) {
 }
 
 
-function getFulfillmentInfo(awsOrder,data) {
+function getFulfillmentInfo(awsOrder,data, context) {
 
   var orderDetails = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails;
   var destinationPath = orderDetails.Destination.PhysicalDestination;
   try {
     var name =  destinationPath.Name;
-    var nameSplit = name.split(" ");
+    var nameSplit = name.split(/\s+/g);
     var phone = destinationPath.Phone;
-    return { "fulfillmentContact" : {
-              "firstName" : (nameSplit[0] ? nameSplit[0] : "N/A"),
-              "lastNameOrSurname" : (nameSplit[1] ? nameSplit[1] : "N/A"),
+   var contact = { "fulfillmentContact" : {
               "email" : orderDetails.Buyer.Email,
               "phoneNumbers" : {
                 "home" : (phone ? phone : "N/A")
@@ -310,6 +308,15 @@ function getFulfillmentInfo(awsOrder,data) {
             },
             "data" : data
       };
+
+
+      contact.fulfillmentContact.firstName  = nameSplit[0];
+      if (nameSplit.length > 2) {
+        contact.fulfillmentContact.middleNameOrInitial = nameSplit[1];
+        contact.fulfillmentContact.lastNameOrSurname = nameSplit[2];
+      } else
+        contact.fulfillmentContact.lastNameOrSurname = (nameSplit[1] ? nameSplit[1] : context.configuration.missingLastNameValue);
+      return contact;
   } catch(e) {
     console.log(e);
     new Error(e);
@@ -449,13 +456,54 @@ module.exports = function(context, callback) {
         }
     })
     .then(function(awsOrder) {
-      self.ctx.request.params.fulfillmentInfo = getFulfillmentInfo(awsOrder, data);
+      self.ctx.request.params.fulfillmentInfo = getFulfillmentInfo(awsOrder, data, self.ctx);
       console.log("fulfillmentInfo from AWS", self.ctx.request.params.fulfillmentInfo );
       self.cb();
     }).catch(function(err) {
       console.error(err);
       self.cb(err);
     });
+  };
+
+  self.getBillingInfo = function(awsData, billingContact) {
+    var awsReferenceId = awsData.awsReferenceId;
+    var addressConsentToken = awsData.addressAuthorizationToken;
+    return paymentHelper.getPaymentConfig(self.ctx)
+    .then(function(config) {
+
+        if (!config.billingType || config.billingType === "0") return billingContact;
+        amazonPay.configure(config);
+        return amazonPay.getOrderDetails(awsReferenceId, addressConsentToken);
+    }).then(function(awsOrder) {
+        var orderDetails = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails;
+        if (orderDetails.BillingAddress && orderDetails.BillingAddress.PhysicalAddress ) {
+          var address = orderDetails.BillingAddress.PhysicalAddress;
+
+          var billToName = address.Name.split(/\s+/g);
+            billingContact.firstName  = billToName[0];
+            if (billToName.length > 2) {
+              billingContact.middleNameOrInitial = billToName[1];
+              billingContact.lastNameOrSurname = billToName[2];
+            } else
+              billingContact.lastNameOrSurname = billToName[1];
+            billingContact.phoneNumbers = {"home" : address.Phone ? address.phone : "N/A"};
+            billingContact.address= {
+                  "address1": address.AddressLine1,
+                  "cityOrTown": address.City,
+                  "stateOrProvince": address.StateOrRegion,
+                  "postalOrZipCode": address.PostalCode,
+                  "countryCode": address.CountryCode,
+                  "addressType": 'Residential',
+                  "isValidated":  true
+              };
+        }
+        console.log("billing contact", billingContact);
+        return billingContact;
+    }).catch(function(err) {
+      console.error(err);
+      return billingContact;
+    });
+
   };
 
   //Process payment interactions
@@ -584,9 +632,11 @@ module.exports = {
 	CAPTURED: "Captured",
 	CREDITED: "Credited",
 	CREDITPENDING: "CreditPending",
-	VOIDED: "Voided"
+	VOIDED: "Voided",
+  BILLINGADDRESS: "billingAddressOption"
 
 };
+
 },{}],4:[function(require,module,exports){
 
 var getAppInfo = require('mozu-action-helpers/get-app-info');
@@ -730,7 +780,8 @@ var paymentHelper = module.exports = {
                         "region" : helper.getValue(paymentSettings, paymentConstants.REGION),
                         "clientId" : helper.getValue(paymentSettings, paymentConstants.CLIENTID),
                         "captureOnAuthorize": captureOnAuthorize,
-                        "isEnabled": paymentSettings.isEnabled
+                        "isEnabled": paymentSettings.isEnabled,
+                        "billingType" : helper.getValue(paymentSettings, paymentConstants.BILLINGADDRESS)
                     };
 
     	return config;

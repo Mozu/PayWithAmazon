@@ -22,6 +22,7 @@ module.exports = {
 	CAPTURED: "Captured",
 	CREDITED: "Credited",
 	CREDITPENDING: "CreditPending",
-	VOIDED: "Voided"
+	VOIDED: "Voided",
+  BILLINGADDRESS: "billingAddressOption"
 
 };

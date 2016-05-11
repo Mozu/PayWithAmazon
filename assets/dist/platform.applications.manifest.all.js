@@ -23,9 +23,11 @@ module.exports = {
 	CAPTURED: "Captured",
 	CREDITED: "Credited",
 	CREDITPENDING: "CreditPending",
-	VOIDED: "Voided"
+	VOIDED: "Voided",
+  BILLINGADDRESS: "billingAddressOption"
 
 };
+
 },{}],2:[function(require,module,exports){
 
 var getAppInfo = require('mozu-action-helpers/get-app-info');
@@ -162,7 +164,7 @@ function AppInstall(context, callback) {
 
 		try {
 			console.log("Installing amazon payment settings", tenant);
-			
+
 			var tasks = tenant.sites.map(function(site) {
 											return addUpdatePaymentSettings(context, site);
 										});
@@ -183,7 +185,7 @@ function AppInstall(context, callback) {
 		console.log("Adding payment settings for site", site.id);
 		var paymentSettingsClient = require("mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings")();
 		paymentSettingsClient.context[constants.headers.SITE] = site.id;
-		//GetExisting 
+		//GetExisting
 		var paymentDef = getPaymentDef();
 		return paymentSettingsClient.getThirdPartyPaymentWorkflowWithValues({fullyQualifiedName :  paymentDef.namespace+"~"+paymentDef.name })
 		.then(function(paymentSettings){
@@ -207,7 +209,34 @@ function AppInstall(context, callback) {
 	function enableActions() {
 		console.log("installing code actions");
 		var installer = new ActionInstaller({ context: self.ctx.apiContext });
-	 	installer.enableActions(context).then(self.cb.bind(null, null), self.cb);	
+	 	installer.enableActions(self.ctx, null, {
+      "embedded.commerce.payments.action.performPaymentInteraction" : function(settings) {
+        settings = settings || {};
+        settings.timeoutMilliseconds = 30000;
+        return settings;
+      },
+      "amazonPaymentActionBefore" : function(settings) {
+        settings = settings || {};
+        settings.timeoutMilliseconds = 30000;
+        return settings;
+      },
+      "amazonCartBefore" : function(settings) {
+        settings = settings || {};
+        settings.timeoutMilliseconds = 30000;
+        return settings;
+      },
+      "amazonCheckoutBefore" : function(settings) {
+        settings = settings || {};
+        settings.timeoutMilliseconds = 30000;
+        return settings;
+      },
+      "amazonSetFulfillmentInfo" : function(settings) {
+        settings = settings || {};
+        settings.timeoutMilliseconds = 30000;
+        settings.configuration = {"missingLastNameValue" : "N/A"};
+        return settings;
+      }
+    } ).then(self.cb.bind(null, null), self.cb);
 	}
 
 	function getPaymentDef(existingSettings) {
@@ -221,11 +250,19 @@ function AppInstall(context, callback) {
 			    	getPaymentActionFieldDef("Seller Id", paymentConstants.SELLERID, "TextBox", false,null,existingSettings),
 			    	getPaymentActionFieldDef("Client Id", paymentConstants.CLIENTID, "TextBox", false,null,existingSettings),
 			    	getPaymentActionFieldDef("MWS Auth Token", paymentConstants.AUTHTOKEN, "TextBox", true,null,existingSettings),
+            getPaymentActionFieldDef("Include Billing Address from Amazon on Order?", paymentConstants.BILLINGADDRESS, "RadioButton", false,getBillingOptions(),existingSettings),
 			    	getPaymentActionFieldDef("AWS Region", paymentConstants.REGION, "RadioButton", false,getRegions(),existingSettings),
 			    	getPaymentActionFieldDef("Order Processing", paymentConstants.ORDERPROCESSING, "RadioButton", true,getOrderProcessingVocabularyValues(),existingSettings),
 			    ]
 			};
 	}
+
+  function getBillingOptions() {
+    return [
+      getVocabularyContent("0", "No", "No"),
+      getVocabularyContent("1", "Yes", "Yes")
+    ];
+  }
 
 	function getRegions() {
 		return [
@@ -294,7 +331,7 @@ function AppInstall(context, callback) {
 	    	getPaymentActionFieldDef("Order Processing", "orderProcessing", "Radio", false,getOrderProcessingVocabularyValues())
 	    ]
 	};
-	
+
 	paymentSettingsClient.addThirdPartyPaymentWorkflow({body: paymentDef}).then(function() {
 		enableActions(context, callback);
 	}, function(e) {
@@ -318,6 +355,7 @@ module.exports = function(context, callback) {
   	}
 
 };
+
 },{"../../amazon/constants":1,"../../amazon/helper":2,"mozu-action-helpers/installers/actions":31,"mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings":35,"mozu-node-sdk/clients/platform/tenant":37,"mozu-node-sdk/constants":39,"underscore":62}],4:[function(require,module,exports){
 module.exports = {
   
