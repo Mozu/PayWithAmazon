@@ -6,14 +6,18 @@ var amazonPay = require("./amazonpaysdk")();
 var constants = require("mozu-node-sdk/constants");
 var paymentConstants = require("./constants");
 var orderClient = require("mozu-node-sdk/clients/commerce/order")();
+var cartClient = require("mozu-node-sdk/clients/commerce/cart")();
 var FulfillmentInfoClient = require('mozu-node-sdk/clients/commerce/orders/fulfillmentInfo')();
 var helper = require("./helper");
 var paymentHelper = require("./paymentHelper");
 
-function createOrderFromCart(cartId) {
-  return orderClient.createOrderFromCart({ cartId: ''+cartId+''  }).then(function(order) {
-    console.log("Order created from cart");
-    return order;
+function createOrderFromCart(userId, cartId) {
+  return cartClient.getOrCreateCart().then(function(cart) {
+    return orderClient.createOrderFromCart({ cartId: cart.id  })
+      .then(function(order) {
+        console.log("Order created from cart");
+        return order;
+      });
   }).then(function(order){
     console.log("Order fulfillmentInfo" ,order.fulfillmentInfo);
 
@@ -121,7 +125,7 @@ module.exports = function(context, callback) {
           helper.validateUserSession(self.ctx);
 
           console.log("Converting cart to order", cartId);
-          return createOrderFromCart(cartId);
+          return createOrderFromCart(self.ctx.apiContext.userId, cartId);
         } else if (!isTokenValid) {
           console.log("Amazon token and expried, redirecting to cart");
           self.ctx.response.redirect('/cart');
@@ -141,7 +145,8 @@ module.exports = function(context, callback) {
         self.ctx.response.end();
       }).catch(function(e){
         console.error(e);
-        self.cb(e);
+        context.cache.request.set("amazonError",e);
+        self.cb();
       });//.then(self.cb, self.cb);
   };
 

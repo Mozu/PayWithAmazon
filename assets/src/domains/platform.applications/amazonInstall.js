@@ -87,6 +87,7 @@ function AppInstall(context, callback) {
       "amazonCartBefore" : function(settings) {
         settings = settings || {};
         settings.timeoutMilliseconds = 30000;
+        settings.configuration = {"allowWarmCheckout" : true};
         return settings;
       },
       "amazonCheckoutBefore" : function(settings) {

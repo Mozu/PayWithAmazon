@@ -21,7 +21,12 @@ var helper = module.exports = {
 		var user = context.items.pageContext.user;
 		if ( !user.isAnonymous && !user.IsAuthenticated )
 		{
-			context.response.redirect('/user/login?returnUrl=' + encodeURIComponent(context.request.url));
+      console.log(context.configuration);
+      var allowWarmCheckout = (context.configuration && context.configuration.allowWarmCheckout);
+      var redirectUrl = '/user/login?returnUrl=' + encodeURIComponent(context.request.url);
+      if (!allowWarmCheckout)
+        redirectUrl = '/logout?returnUrl=' + encodeURIComponent(context.request.url)+"&saveUserId=true";
+			context.response.redirect(redirectUrl);
 			return context.response.end();
 		}
 	},
