@@ -292,7 +292,11 @@ function getFulfillmentInfo(awsOrder,data, context) {
   var destinationPath = orderDetails.Destination.PhysicalDestination;
   try {
     var name =  destinationPath.Name;
-    var nameSplit = name.split(/\s+/g);
+    var nameSplit = name.split(/\s/);
+    var firstName = nameSplit[0];
+    var lastName = context.configuration.missingLastNameValue;
+    if (nameSplit[1])
+      lastName = destinationPath.Name.replace(nameSplit[0]+" ","").replace(nameSplit[0],"");
     var phone = destinationPath.Phone;
    var contact = { "fulfillmentContact" : {
               "email" : orderDetails.Buyer.Email,
@@ -314,12 +318,8 @@ function getFulfillmentInfo(awsOrder,data, context) {
       };
 
 
-      contact.fulfillmentContact.firstName  = nameSplit[0];
-      if (nameSplit.length > 2) {
-        contact.fulfillmentContact.middleNameOrInitial = nameSplit[1];
-        contact.fulfillmentContact.lastNameOrSurname = nameSplit[2];
-      } else
-        contact.fulfillmentContact.lastNameOrSurname = (nameSplit[1] ? nameSplit[1] : context.configuration.missingLastNameValue);
+      contact.fulfillmentContact.firstName  = firstName;
+      contact.fulfillmentContact.lastNameOrSurname = lastName;
       return contact;
   } catch(e) {
     console.log(e);
@@ -484,23 +484,22 @@ module.exports = function(context, callback) {
         if (orderDetails.BillingAddress && orderDetails.BillingAddress.PhysicalAddress ) {
           var address = orderDetails.BillingAddress.PhysicalAddress;
 
-          var billToName = address.Name.split(/\s+/g);
-            billingContact.firstName  = billToName[0];
-            if (billToName.length > 2) {
-              billingContact.middleNameOrInitial = billToName[1];
-              billingContact.lastNameOrSurname = billToName[2];
-            } else
-              billingContact.lastNameOrSurname = billToName[1];
-            billingContact.phoneNumbers = {"home" : address.Phone ? address.phone : "N/A"};
-            billingContact.address= {
-                  "address1": address.AddressLine1,
-                  "cityOrTown": address.City,
-                  "stateOrProvince": address.StateOrRegion,
-                  "postalOrZipCode": address.PostalCode,
-                  "countryCode": address.CountryCode,
-                  "addressType": 'Residential',
-                  "isValidated":  true
-              };
+          var parts = address.Name.split(/\s/);
+
+          var firstName = parts[0];
+          var lastName = address.Name.replace(parts[0]+" ","").replace(parts[0],"");
+          billingContact.firstName  = firstName;
+          billingContact.lastNameOrSurname = lastName;
+          billingContact.phoneNumbers = {"home" : address.Phone ? address.phone : "N/A"};
+          billingContact.address= {
+                "address1": address.AddressLine1,
+                "cityOrTown": address.City,
+                "stateOrProvince": address.StateOrRegion,
+                "postalOrZipCode": address.PostalCode,
+                "countryCode": address.CountryCode,
+                "addressType": 'Residential',
+                "isValidated":  true
+            };
         }
         console.log("billing contact", billingContact);
         return billingContact;
