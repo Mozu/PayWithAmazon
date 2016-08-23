@@ -112,12 +112,12 @@ var helper = module.exports = {
 	    return value.value || value.Value;
 	},
 	addErrorToModel: function(context, callback, err) {
-	    console.log("Adding error to viewData", err);
+	    console.error("Adding error to viewData", err);
 	    var message = err;
 	    if (err.statusText)
 	      message = err.statusText;
       else if (err.originalError) {
-          console.log("originalError", err.originalError);
+          console.error("originalError", err.originalError);
           if (err.originalError.items && err.originalError.items.length > 0)
             message = err.originalError.items[0].message;
           else
