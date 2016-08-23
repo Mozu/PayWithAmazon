@@ -212,7 +212,7 @@ var paymentHelper = module.exports = {
 		        });
 			}).catch(function(err) {
 				console.error("err", err);
-				return { status : paymentConstants.FAILED, responseText: err.message};
+				return { status : paymentConstants.DECLINED, responseText: err.message};
 			});
 		} catch(e) {
 			console.error("exception", e);
@@ -225,14 +225,17 @@ var paymentHelper = module.exports = {
 			amazonPay.configure(config);
 	  		return this.createNewPayment(context, config, paymentAction, payment)
 	  		.then(function(result) {
-	      		if (result.status == paymentConstants.FAILED) return result;
+	      		if (result.status == paymentConstants.FAILED) {
+                      result.status = paymentConstants.DECLINED;
+                      return result;
+                  }
 	            return self.authorizePayment(context, paymentAction, payment);
 		    }, function(err) {
 		        console.log("Amazon confirm order failed", err);
-		        return {status : paymentConstants.FAILED, responseCode: err.code, responseText: err.message};
+		        return {status : paymentConstants.DECLINED, responseCode: err.code, responseText: err.message};
 		    }).catch(function(err) {
 				console.log(err);
-				return { status : paymentConstants.FAILED, responseText: err};
+				return { status : paymentConstants.DECLINED, responseText: err};
 			});
   		} catch(e) {
   			console.error(e);

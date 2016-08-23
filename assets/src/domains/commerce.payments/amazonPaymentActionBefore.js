@@ -76,11 +76,7 @@ module.exports = function(context, callback) {
 
 
 
-  var existingPayment = _.find(order.payments,function(payment) {
-    return payment.paymentType === paymentConstants.PAYMENTSETTINGID  &&
-            payment.paymentWorkflow === paymentConstants.PAYMENTSETTINGID &&
-            payment.status === "Collected";   });
-
+  var existingPayment = getPayment(order, "Collected");
 
   var billingInfo = context.get.payment().billingInfo;
   if (existingPayment) {
@@ -89,21 +85,50 @@ module.exports = function(context, callback) {
     context.exec.setExternalTransactionId(billingInfo.externalTransactionId);
     updateBillingInfo(context, callback, billingInfo);
   } else {
-    if (payment.data && payment.data.awsData && paymentAction.actionName === "CreatePayment") {
-    //Get Billing from amazon
-      var amazonCheckout = new AmazonCheckout(context, callback);
-      amazonCheckout.getBillingInfo(payment.data.awsData, billingInfo.billingContact)
-      .then(function(billingContact) {
-        billingInfo.billingContact = billingContact;
-        billingInfo.externalTransactionId = context.get.payment().externalTransactionId;
-        context.exec.removePaymentData("awsData");
-        updateBillingInfo(context, callback, billingInfo);
-      });
-    } else {
-      updateBillingInfo(context, callback, billingInfo);
-    }
+      
+     console.log("Payment before",paymentAction.actionName );
+     var awsReferenceId = "";
+     
+     try {
+        if (payment.data && payment.data.awsData )
+            awsReferenceId = payment.data.awsData.awsReferenceId;
+        else
+        {
+            var newPayment =getPayment(order, "New");
+            console.log(newPayment);
+            if (newPayment)
+                awsReferenceId = newPayment.externalTransactionId;
+        }
+        
+        if (awsReferenceId && paymentAction.actionName === "CreatePayment") {
+            var amazonCheckout = new AmazonCheckout(context, callback);
+            
+            amazonCheckout.validateAmazonOrder(awsReferenceId).then(function() {
+                amazonCheckout.getBillingInfo(awsReferenceId, billingInfo.billingContact)
+                .then(function(billingContact) {
+                    billingInfo.billingContact = billingContact;
+                    billingInfo.externalTransactionId = context.get.payment().externalTransactionId;
+                    context.exec.removePaymentData("awsData");
+                    updateBillingInfo(context, callback, billingInfo);
+                });
+            });
+        } else {
+            updateBillingInfo(context, callback, billingInfo);
+        }
+     } catch(e) {
+         console.error("Amazon payment before", e);
+         callback(e);
+     }
   }
 };
+
+
+function getPayment(order, status) {
+     return _.find(order.payments,function(payment) {
+                                        return payment.paymentType === paymentConstants.PAYMENTSETTINGID  &&
+                                                payment.paymentWorkflow === paymentConstants.PAYMENTSETTINGID &&
+                                                payment.status === status;   });
+}
 
 
 function updateBillingInfo(context, callback, billingInfo) {

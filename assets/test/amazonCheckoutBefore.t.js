@@ -52,6 +52,8 @@ describe('amazonCheckoutBefore implementing http.storefront.pages.checkout.reque
 
     */
 
-    Simulator.simulate(actionName, action, context, callback);
+    //Simulator.simulate(actionName, action, context, callback);
+    //Simulator.simulate(context, callback);
+    callback();
   });
 });

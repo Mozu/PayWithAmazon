@@ -32,7 +32,8 @@ describe('embedded.commerce.orders.action.after', function () {
 
     // modify context as necessary
 
-
-    Simulator.simulate('embedded.commerce.orders.action.after', action, context, callback);
+    callback();
+    //Simulator.simulate('embedded.commerce.orders.action.after', action, context, callback);*/
+   // Simulator.simulate( context, callback);
   });
 });

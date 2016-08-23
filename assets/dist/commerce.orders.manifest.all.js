@@ -3,7 +3,6 @@ var crypto 	= require("crypto");
 var moment 	= require("moment");
 var _ 		= require("underscore");
 var needle 	= require('needle');
-var crypto 	= require("crypto");
 var moment 	= require("moment");
 
 var mwsServiceUrls = { "eu" : "mws-eu.amazonservices.com", "na" : "mws.amazonservices.com", "jp" : "mws.amazonservices.jp"  };
@@ -286,6 +285,16 @@ function createOrderFromCart(userId, cartId) {
 }
 
 
+function getAmazonOrderDetails(ctx, awsReferenceId, addressConsentToken) {    
+    return paymentHelper.getPaymentConfig(ctx)
+    .then(function(config) {
+        amazonPay.configure(config);
+        return amazonPay.getOrderDetails(awsReferenceId, addressConsentToken).then(function(order) {
+            return {awsOrder :order.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails , config: config};
+        });
+    });
+}
+
 function getFulfillmentInfo(awsOrder,data, context) {
 
   var orderDetails = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails;
@@ -470,17 +479,12 @@ module.exports = function(context, callback) {
     });
   };
 
-  self.getBillingInfo = function(awsData, billingContact) {
-    var awsReferenceId = awsData.awsReferenceId;
-    var addressConsentToken = awsData.addressAuthorizationToken;
-    return paymentHelper.getPaymentConfig(self.ctx)
-    .then(function(config) {
-
-        if (!config.billingType || config.billingType === "0") return billingContact;
-        amazonPay.configure(config);
-        return amazonPay.getOrderDetails(awsReferenceId, addressConsentToken);
-    }).then(function(awsOrder) {
-        var orderDetails = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails;
+  self.getBillingInfo = function(awsReferenceId, billingContact) {
+    //var awsReferenceId = awsData.awsReferenceId;
+    return getAmazonOrderDetails(self.ctx,awsReferenceId, null).then(function(data)  {        
+        if (!data.config.billingType || data.config.billingType === "0") return billingContact;
+        
+        var orderDetails = data.awsOrder;
         if (orderDetails.BillingAddress && orderDetails.BillingAddress.PhysicalAddress ) {
           var address = orderDetails.BillingAddress.PhysicalAddress;
 
@@ -509,6 +513,32 @@ module.exports = function(context, callback) {
     });
 
   };
+
+    self.validateAmazonOrder = function(awsReferenceId) {
+        return getAmazonOrderDetails(self.ctx,awsReferenceId, null).then(function(data) {
+            var orderDetails = data.awsOrder;
+            console.log("Order status", orderDetails.OrderReferenceStatus);
+            var state = orderDetails.OrderReferenceStatus.State;
+            if (state === "Canceled" ) {
+                console.log("Order status", "Amazon order "+awsReferenceId+" went into stale state");
+                self.cb("Amazon order has timed out. Relogin from cart or checkout page");
+            }
+            
+            //check constraints
+            if (orderDetails.Constraints) {
+                var paymentNotSet = _.find(orderDetails.Constraint, function(c) {
+                                            return c.ConstraintID === "PaymentPlanNotSet"; 
+                                        });
+                if (paymentNotSet) {
+                    console.log("Amazon payment not set", "Amazon order "+awsReferenceId+" payment not set");
+                    self.cb("A valid payment has not been selected from Amazon. Please fix the issue before placing the order");
+                }
+            }
+        }).catch(function(err) {
+            console.error("Error validating aws order", err);
+            self.cb(err);
+        });
+    };
 
   //Process payment interactions
   self.processPayment = function() {
@@ -575,6 +605,7 @@ module.exports = function(context, callback) {
     }
   };
 
+  
 
   //Close the order in amazon once the order has been marked as completed in mozu
   self.closeOrder = function() {
@@ -727,7 +758,7 @@ var helper = module.exports = {
 	addErrorToModel: function(context, callback, err) {
 	    console.log("Adding error to viewData", err);
 	    var message = err;
-	    if (error.statusText)
+	    if (err.statusText)
 	      message = err.statusText;
       else if (err.originalError) {
           console.log("originalError", err.originalError);
@@ -966,7 +997,7 @@ var paymentHelper = module.exports = {
 		        });
 			}).catch(function(err) {
 				console.error("err", err);
-				return { status : paymentConstants.FAILED, responseText: err.message};
+				return { status : paymentConstants.DECLINED, responseText: err.message};
 			});
 		} catch(e) {
 			console.error("exception", e);
@@ -979,14 +1010,17 @@ var paymentHelper = module.exports = {
 			amazonPay.configure(config);
 	  		return this.createNewPayment(context, config, paymentAction, payment)
 	  		.then(function(result) {
-	      		if (result.status == paymentConstants.FAILED) return result;
+	      		if (result.status == paymentConstants.FAILED) {
+                      result.status = paymentConstants.DECLINED;
+                      return result;
+                  }
 	            return self.authorizePayment(context, paymentAction, payment);
 		    }, function(err) {
 		        console.log("Amazon confirm order failed", err);
-		        return {status : paymentConstants.FAILED, responseCode: err.code, responseText: err.message};
+		        return {status : paymentConstants.DECLINED, responseCode: err.code, responseText: err.message};
 		    }).catch(function(err) {
 				console.log(err);
-				return { status : paymentConstants.FAILED, responseText: err};
+				return { status : paymentConstants.DECLINED, responseText: err};
 			});
   		} catch(e) {
   			console.error(e);

@@ -21,6 +21,11 @@
       "actionId": "embedded.commerce.payments.action.before"
     },
     {
+      "id": "amazonPaymentActionAfter",
+      "virtualPath": "./dist\\commerce.payments.manifest.all.js",
+      "actionId": "embedded.commerce.payments.action.after"
+    },
+    {
       "id": "amazonSettingValidator",
       "virtualPath": "./dist\\commerce.settings.manifest.all.js",
       "actionId": "http.commerce.settings.checkout.paymentsettings.updatePaymentSettings.before"

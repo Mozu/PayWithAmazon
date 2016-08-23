@@ -23,7 +23,7 @@
 
 var AmazonCheckout = require("../../amazon/checkout");
 
-var helper = require('../../amazon/paymenthelper');
+var helper = require('../../amazon/helper');
 
 module.exports = function(context, callback) {
   var amazonError = context.cache.request.get("amazonError");

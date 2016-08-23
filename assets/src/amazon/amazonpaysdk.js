@@ -2,7 +2,6 @@ var crypto 	= require("crypto");
 var moment 	= require("moment");
 var _ 		= require("underscore");
 var needle 	= require('needle');
-var crypto 	= require("crypto");
 var moment 	= require("moment");
 
 var mwsServiceUrls = { "eu" : "mws-eu.amazonservices.com", "na" : "mws.amazonservices.com", "jp" : "mws.amazonservices.jp"  };

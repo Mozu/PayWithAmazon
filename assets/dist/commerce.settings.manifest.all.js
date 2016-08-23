@@ -3,7 +3,6 @@ var crypto 	= require("crypto");
 var moment 	= require("moment");
 var _ 		= require("underscore");
 var needle 	= require('needle');
-var crypto 	= require("crypto");
 var moment 	= require("moment");
 
 var mwsServiceUrls = { "eu" : "mws-eu.amazonservices.com", "na" : "mws.amazonservices.com", "jp" : "mws.amazonservices.jp"  };
@@ -354,7 +353,7 @@ var helper = module.exports = {
 	addErrorToModel: function(context, callback, err) {
 	    console.log("Adding error to viewData", err);
 	    var message = err;
-	    if (error.statusText)
+	    if (err.statusText)
 	      message = err.statusText;
       else if (err.originalError) {
           console.log("originalError", err.originalError);
@@ -593,7 +592,7 @@ var paymentHelper = module.exports = {
 		        });
 			}).catch(function(err) {
 				console.error("err", err);
-				return { status : paymentConstants.FAILED, responseText: err.message};
+				return { status : paymentConstants.DECLINED, responseText: err.message};
 			});
 		} catch(e) {
 			console.error("exception", e);
@@ -606,14 +605,17 @@ var paymentHelper = module.exports = {
 			amazonPay.configure(config);
 	  		return this.createNewPayment(context, config, paymentAction, payment)
 	  		.then(function(result) {
-	      		if (result.status == paymentConstants.FAILED) return result;
+	      		if (result.status == paymentConstants.FAILED) {
+                      result.status = paymentConstants.DECLINED;
+                      return result;
+                  }
 	            return self.authorizePayment(context, paymentAction, payment);
 		    }, function(err) {
 		        console.log("Amazon confirm order failed", err);
-		        return {status : paymentConstants.FAILED, responseCode: err.code, responseText: err.message};
+		        return {status : paymentConstants.DECLINED, responseCode: err.code, responseText: err.message};
 		    }).catch(function(err) {
 				console.log(err);
-				return { status : paymentConstants.FAILED, responseText: err};
+				return { status : paymentConstants.DECLINED, responseText: err};
 			});
   		} catch(e) {
   			console.error(e);
