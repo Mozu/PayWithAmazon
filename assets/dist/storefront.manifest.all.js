@@ -99,7 +99,7 @@ module.exports = function() {
 		var promise = new Promise(function(resolve, reject) {
 			needle.post("https://"+self.config.server+self.config.path,
 			buildParamString(params, false),
-			{json: false, parse: true},
+			{json: false, parse: true, open_timeout: 60000},
 			function(err, response, body) {
 				if (response.statusCode != 200)
 					reject(parseErrorToJson(response.body));
@@ -285,7 +285,7 @@ function createOrderFromCart(userId, cartId) {
 }
 
 
-function getAmazonOrderDetails(ctx, awsReferenceId, addressConsentToken) {    
+function getAmazonOrderDetails(ctx, awsReferenceId, addressConsentToken) {
     return paymentHelper.getPaymentConfig(ctx)
     .then(function(config) {
         amazonPay.configure(config);
@@ -306,9 +306,11 @@ function getFulfillmentInfo(awsOrder,data, context) {
     var lastName = context.configuration.missingLastNameValue;
     if (nameSplit[1])
       lastName = destinationPath.Name.replace(nameSplit[0]+" ","").replace(nameSplit[0],"");
+    var registeredUser = helper.getUserEmail(context);
+
     var phone = destinationPath.Phone;
    var contact = { "fulfillmentContact" : {
-              "email" : orderDetails.Buyer.Email,
+              "email" : registeredUser || orderDetails.Buyer.Email,
               "phoneNumbers" : {
                 "home" : (phone ? phone : "N/A")
               },
@@ -470,7 +472,12 @@ module.exports = function(context, callback) {
         }
     })
     .then(function(awsOrder) {
-      self.ctx.request.params.fulfillmentInfo = getFulfillmentInfo(awsOrder, data, self.ctx);
+      var shippingAddress = getFulfillmentInfo(awsOrder, data, self.ctx);
+      if (fulfillmentInfo.fulfillmentContact)
+        shippingAddress.fulfillmentContact.email = fulfillmentInfo.fulfillmentContact.email || shippingAddress.email;
+
+      self.ctx.request.params.fulfillmentInfo = shippingAddress;
+
       console.log("fulfillmentInfo from AWS", self.ctx.request.params.fulfillmentInfo );
       self.cb();
     }).catch(function(err) {
@@ -479,17 +486,16 @@ module.exports = function(context, callback) {
     });
   };
 
-  self.getBillingInfo = function(awsReferenceId, billingContact) {
+  self.getBillingInfo = function(awsReferenceId, billingContact, context) {
     //var awsReferenceId = awsData.awsReferenceId;
-    return getAmazonOrderDetails(self.ctx,awsReferenceId, null).then(function(data)  {        
+    return getAmazonOrderDetails(self.ctx,awsReferenceId, null).then(function(data)  {
         if (!data.config.billingType || data.config.billingType === "0") return billingContact;
-        
+
         var orderDetails = data.awsOrder;
         if (orderDetails.BillingAddress && orderDetails.BillingAddress.PhysicalAddress ) {
           var address = orderDetails.BillingAddress.PhysicalAddress;
-
+          console.log("Amazon order", orderDetails);
           var parts = address.Name.split(/\s/);
-
           var firstName = parts[0];
           var lastName = address.Name.replace(parts[0]+" ","").replace(parts[0],"");
           billingContact.firstName  = firstName;
@@ -523,11 +529,11 @@ module.exports = function(context, callback) {
                 console.log("Order status", "Amazon order "+awsReferenceId+" went into stale state");
                 self.cb("Amazon order has timed out. Relogin from cart or checkout page");
             }
-            
+
             //check constraints
             if (orderDetails.Constraints) {
                 var paymentNotSet = _.find(orderDetails.Constraint, function(c) {
-                                            return c.ConstraintID === "PaymentPlanNotSet"; 
+                                            return c.ConstraintID === "PaymentPlanNotSet";
                                         });
                 if (paymentNotSet) {
                     console.log("Amazon payment not set", "Amazon order "+awsReferenceId+" payment not set");
@@ -605,7 +611,7 @@ module.exports = function(context, callback) {
     }
   };
 
-  
+
 
   //Close the order in amazon once the order has been marked as completed in mozu
   self.closeOrder = function() {
@@ -705,6 +711,16 @@ var helper = module.exports = {
 			return context.response.end();
 		}
 	},
+  getUserEmail : function(context) {
+    if (!context.items || !context.items.pageContext || !context.items.pageContext.user) return null;
+    var user = context.items.pageContext.user;
+    console.log("user", user);
+    if ( !user.isAnonymous && user.IsAuthenticated ) {
+      console.log(user);
+      return user.email;
+    }
+    return null;
+  },
 	getPaymentFQN: function(context) {
 		var appInfo = getAppInfo(context);
 		console.log("App Info", appInfo);
@@ -1334,7 +1350,7 @@ module.exports = function(context, callback) {
 module.exports = function(context, callback) {
 	var amazonCheckout = new AmazonCheckout(context, callback);
     amazonCheckout.validateAndProcess().then(callback, function(e){
-      amazonCheckout.setError(contex, callback,e);
+      amazonCheckout.setError(context, callback,e);
     }).catch(function(e){
       amazonCheckout.setError(context, callback.e);
     });

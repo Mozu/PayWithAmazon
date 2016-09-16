@@ -30,6 +30,16 @@ var helper = module.exports = {
 			return context.response.end();
 		}
 	},
+  getUserEmail : function(context) {
+    if (!context.items || !context.items.pageContext || !context.items.pageContext.user) return null;
+    var user = context.items.pageContext.user;
+    console.log("user", user);
+    if ( !user.isAnonymous && user.IsAuthenticated ) {
+      console.log(user);
+      return user.email;
+    }
+    return null;
+  },
 	getPaymentFQN: function(context) {
 		var appInfo = getAppInfo(context);
 		console.log("App Info", appInfo);

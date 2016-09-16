@@ -98,7 +98,7 @@ module.exports = function() {
 		var promise = new Promise(function(resolve, reject) {
 			needle.post("https://"+self.config.server+self.config.path,
 			buildParamString(params, false),
-			{json: false, parse: true},
+			{json: false, parse: true, open_timeout: 60000},
 			function(err, response, body) {
 				if (response.statusCode != 200)
 					reject(parseErrorToJson(response.body));
