@@ -76,29 +76,29 @@ function AppInstall(context, callback) {
 	 	installer.enableActions(self.ctx, null, {
       "embedded.commerce.payments.action.performPaymentInteraction" : function(settings) {
         settings = settings || {};
-        settings.timeoutMilliseconds = 30000;
+        settings.timeoutMilliseconds =settings.timeoutMilliseconds ||  30000;
         return settings;
       },
       "amazonPaymentActionBefore" : function(settings) {
         settings = settings || {};
-        settings.timeoutMilliseconds = 30000;
+        settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
         return settings;
       },
       "amazonCartBefore" : function(settings) {
         settings = settings || {};
-        settings.timeoutMilliseconds = 30000;
+        settings.timeoutMilliseconds =settings.timeoutMilliseconds ||  30000;
         settings.configuration = {"allowWarmCheckout" : true};
         return settings;
       },
       "amazonCheckoutBefore" : function(settings) {
         settings = settings || {};
-        settings.timeoutMilliseconds = 30000;
+        settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
         return settings;
       },
       "amazonSetFulfillmentInfo" : function(settings) {
         settings = settings || {};
-        settings.timeoutMilliseconds = 30000;
-        settings.configuration = {"missingLastNameValue" : "N/A"};
+        settings.timeoutMilliseconds = settings.timeoutMilliseconds ||  30000;
+        settings.configuration = settings.configuration || {"missingLastNameValue" : "N/A"};
         return settings;
       }
     } ).then(self.cb.bind(null, null), self.cb);
@@ -180,37 +180,9 @@ function AppInstall(context, callback) {
 
 }
 
-/*function enableAmazonPaymentWorkflow(context, callback) {
-	var paymentDef = {
-	    "name": "PayByAmazon",
-	    "namespace": context.get.nameSpace(),
-	    "isEnabled": "false",
-	    "credentials":  [
-	    	getPaymentActionFieldDef("Environment", "environment", "RadioButton", false,getEnvironmentVocabularyValues()),
-	    	getPaymentActionFieldDef("Seller Id", "sellerId", "TextBox", false,null),
-	    	getPaymentActionFieldDef("Client Id", "clientId", "TextBox", false,null),
-	    	getPaymentActionFieldDef("Application Id", "appId", "TextBox", true,null),
-	    	getPaymentActionFieldDef("AWS Access Key", "awsAccessKeyId", "TextBox", true.null),
-	    	getPaymentActionFieldDef("AWS Secret", "awsSecret", "TextBox", true,null),
-	    	getPaymentActionFieldDef("AWS Region", "region", "RadioButton", false,null),
-	    	getPaymentActionFieldDef("Order Processing", "orderProcessing", "Radio", false,getOrderProcessingVocabularyValues())
-	    ]
-	};
-
-	paymentSettingsClient.addThirdPartyPaymentWorkflow({body: paymentDef}).then(function() {
-		enableActions(context, callback);
-	}, function(e) {
-		callback(e);
-	});
-}*/
-
 
 
 module.exports = function(context, callback) {
-	/*tennatClient.getTenant({tenantId: context.apiContext.tenantId}).then()
-
-	console.log("App installed context", context);
-  	enableAmazonPaymentWorkflow(context, callback);*/
 
   	try {
   		var appInstall = new AppInstall(context, callback);

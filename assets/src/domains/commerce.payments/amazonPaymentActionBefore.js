@@ -85,10 +85,10 @@ module.exports = function(context, callback) {
     context.exec.setExternalTransactionId(billingInfo.externalTransactionId);
     updateBillingInfo(context, callback, billingInfo);
   } else {
-      
+
      console.log("Payment before",paymentAction.actionName );
      var awsReferenceId = "";
-     
+
      try {
         if (payment.data && payment.data.awsData )
             awsReferenceId = payment.data.awsData.awsReferenceId;
@@ -99,12 +99,12 @@ module.exports = function(context, callback) {
             if (newPayment)
                 awsReferenceId = newPayment.externalTransactionId;
         }
-        
+
         if (awsReferenceId && paymentAction.actionName === "CreatePayment") {
             var amazonCheckout = new AmazonCheckout(context, callback);
-            
+
             amazonCheckout.validateAmazonOrder(awsReferenceId).then(function() {
-                amazonCheckout.getBillingInfo(awsReferenceId, billingInfo.billingContact)
+                amazonCheckout.getBillingInfo(awsReferenceId, billingInfo.billingContact,context)
                 .then(function(billingContact) {
                     billingInfo.billingContact = billingContact;
                     billingInfo.externalTransactionId = context.get.payment().externalTransactionId;
