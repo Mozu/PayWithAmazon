@@ -129,9 +129,6 @@ var paymentHelper = module.exports = {
 	      context.exec.addPaymentInteraction(interaction);
 	    }
 
-	    if (paymentResult.status == paymentConstants.CREDITPENDING)
-	      context.exec.setPaymentAmountCredited(paymentResult.amount);
-
 	    if (paymentResult.status == paymentConstants.CAPTURED)
 	      context.exec.setPaymentAmountCollected(paymentResult.amount);
 	},
