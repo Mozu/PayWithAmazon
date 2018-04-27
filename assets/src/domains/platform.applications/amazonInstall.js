@@ -100,6 +100,18 @@ function AppInstall(context, callback) {
         settings.timeoutMilliseconds = settings.timeoutMilliseconds ||  30000;
         settings.configuration = settings.configuration || {"missingLastNameValue" : "N/A"};
         return settings;
+	  },
+	  "http.commerce.checkouts.addDestination.before" : function(settings) {
+        settings = settings || {};
+        settings.timeoutMilliseconds = settings.timeoutMilliseconds ||  30000;
+        settings.configuration = settings.configuration || {"missingLastNameValue" : "N/A"};
+        return settings;
+	  },
+	  "http.commerce.checkouts.updateDestination.before" : function(settings) {
+        settings = settings || {};
+        settings.timeoutMilliseconds = settings.timeoutMilliseconds ||  30000;
+        settings.configuration = settings.configuration || {"missingLastNameValue" : "N/A"};
+        return settings;
       }
     } ).then(self.cb.bind(null, null), self.cb);
 	}

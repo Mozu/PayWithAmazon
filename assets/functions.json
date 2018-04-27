@@ -1,6 +1,16 @@
 {
   "exports": [
     {
+      "id": "http.commerce.checkouts.addDestination.before",
+      "virtualPath": "./dist\\commerce.checkouts.manifest.all.js",
+      "actionId": "http.commerce.checkouts.addDestination.before"
+    },
+    {
+      "id": "http.commerce.checkouts.updateDestination.before",
+      "virtualPath": "./dist\\commerce.checkouts.manifest.all.js",
+      "actionId": "http.commerce.checkouts.updateDestination.before"
+    },
+    {
       "id": "processOrderActionAfter",
       "virtualPath": "./dist\\commerce.orders.manifest.all.js",
       "actionId": "embedded.commerce.orders.action.after"

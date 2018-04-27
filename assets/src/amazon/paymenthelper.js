@@ -105,6 +105,9 @@ var paymentHelper = module.exports = {
 	    if (paymentResult.status == paymentConstants.NEW)
 	      context.exec.setPaymentAmountRequested(paymentAction.amount);
 
+			if (paymentResult.status == paymentConstants.CREDITPENDING || paymentResult.status == paymentConstants.CREDITED)
+				context.exec.setPaymentAmountCredited(paymentResult.amount);
+
 	    var interaction  =  {status: paymentResult.status, interactionType: interactionType};
 	    if (paymentResult.amount)
 	      interaction.amount = paymentResult.amount;
@@ -142,7 +145,7 @@ var paymentHelper = module.exports = {
 		amazonPay.configure(config);
 		console.log("config done");
 		try {
-			return helper.getOrderDetails(context,payment.orderId)
+			return helper.getOrderDetails(context)
 					.then(function(orderDetails) {
 			  orderDetails.amount = paymentAction.amount;
 			  orderDetails.currencyCode=  paymentAction.currencyCode;
@@ -246,7 +249,7 @@ var paymentHelper = module.exports = {
 		if (context.configuration && context.configuration.payment)
 			declineCapture =  context.configuration.payment.declineCapture === true;
 
-		return helper.getOrderDetails(context, payment.orderId).then(function(orderDetails) {
+		return helper.getOrderDetails(context).then(function(orderDetails) {
 			orderDetails.requestedAmount = payment.requestedAmount;
 			orderDetails.captureAmount= paymentAction.amount;
 			orderDetails.currencyCode= paymentAction.currencyCode;
@@ -304,7 +307,7 @@ var paymentHelper = module.exports = {
 	creditPayment: function (context, config, paymentAction, payment) {
 		var self = this;
 		amazonPay.configure(config);
-		return helper.getOrderDetails(context,payment.orderId).then(function(orderDetails) {
+		return helper.getOrderDetails(context).then(function(orderDetails) {
 			var capturedInteraction = self.getInteractionByStatus(payment.interactions,paymentConstants.CAPTURED);
 			console.log("AWS Refund, previous capturedInteraction", capturedInteraction);
 			if (!capturedInteraction) {
@@ -361,6 +364,7 @@ var paymentHelper = module.exports = {
 	                  awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId};
 	    }
 
+
 	    var capturedInteraction = self.getInteractionByStatus(payment.interactions,paymentConstants.CAPTURED);
 	    console.log("Void Payment - Captured interaction", capturedInteraction);
 	    if (capturedInteraction) {
@@ -368,8 +372,9 @@ var paymentHelper = module.exports = {
 	    }
 
 	    var authorizedInteraction = self.getInteractionByStatus(payment.interactions,paymentConstants.AUTHORIZED);
-	    if (!authorizedInteraction)
-	      return {status: paymentConstants.VOIDED};
+	    if (!authorizedInteraction || context.get.isVoidActionNoOp())
+	      return {status: paymentConstants.VOIDED, amount: (context.get.isVoidActionNoOp() ? 0 : payment.amount)};
+
 
 	    return amazonPay.cancelOrder(payment.externalTransactionId).then(function(result) {
 	      console.log("Amazon cancel result", result);

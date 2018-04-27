@@ -64,16 +64,21 @@ var helper = module.exports = {
 	isCheckoutPage: function(context) {
 		return context.request.url.indexOf("/checkout") > -1;
 	},
-	getOrderDetails: function(context, orderId) {
-		var orderClient = this.createClientFromContext(Order,context);
+	getOrderDetails: function(context) {
 		var generalSettingsClient = this.createClientFromContext(GeneralSettings, context, true);
 
 	  	return generalSettingsClient.getGeneralSettings()
 	  		.then(function(settings){
-			    return orderClient.getOrder({orderId: orderId})
-			    .then(function(order) {
-			      return {orderNumber: order.orderNumber, websiteName: settings.websiteName, payments: order.payments};
-			    });
+					var order = null;
+					if (context.get.isForOrder() || context.get.isForReturn())
+						order = context.get.order();
+					else
+						order = context.get.checkout();
+						
+			    //return orderClient.getOrder({orderId: orderId})
+			    //.then(function(order) {
+			      return {orderNumber: order.orderNumber || order.number, websiteName: settings.websiteName, payments: order.payments};
+			    //});
 	  		});
 	},
 	getUniqueId: function () {
