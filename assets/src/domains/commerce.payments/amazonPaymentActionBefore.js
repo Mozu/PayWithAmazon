@@ -70,15 +70,19 @@
 module.exports = function(context, callback) {
     var payment = context.get.payment();
     var paymentAction = context.get.paymentAction();
+    console.log(payment);
   if (payment.paymentType !== paymentConstants.PAYMENTSETTINGID  && payment.paymentWorkflow !== paymentConstants.PAYMENTSETTINGID)
     callback();
-  var order = context.get.order();
 
-
+  console.log("is For checkout", context.get.isForCheckout());
+  
+  var amazonCheckout = new AmazonCheckout(context, callback);
+  var order = amazonCheckout.getOrder();
 
   var existingPayment = getPayment(order, "Collected");
 
   var billingInfo = context.get.payment().billingInfo;
+
   if (existingPayment) {
     billingInfo.externalTransactionId = existingPayment.externalTransactionId;
     billingInfo.data = existingPayment.data;
@@ -101,14 +105,11 @@ module.exports = function(context, callback) {
         }
 
         if (awsReferenceId && paymentAction.actionName === "CreatePayment") {
-            var amazonCheckout = new AmazonCheckout(context, callback);
-
             amazonCheckout.validateAmazonOrder(awsReferenceId).then(function() {
-                amazonCheckout.getBillingInfo(awsReferenceId, billingInfo.billingContact,context)
+                amazonCheckout.getBillingInfo(awsReferenceId, billingInfo.billingContact)
                 .then(function(billingContact) {
                     billingInfo.billingContact = billingContact;
                     billingInfo.externalTransactionId = context.get.payment().externalTransactionId;
-                    context.exec.removePaymentData("awsData");
                     updateBillingInfo(context, callback, billingInfo);
                 });
             });
@@ -124,6 +125,7 @@ module.exports = function(context, callback) {
 
 
 function getPayment(order, status) {
+    console.log(order);
      return _.find(order.payments,function(payment) {
                                         return payment.paymentType === paymentConstants.PAYMENTSETTINGID  &&
                                                 payment.paymentWorkflow === paymentConstants.PAYMENTSETTINGID &&
