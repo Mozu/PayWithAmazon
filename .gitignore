@@ -1,5 +1,6 @@
-node_modules/**
-dist/**
-.yo-rc.json
-mozu.config.json
-mozu.config
+arc/node_modules/**
+server/node_modules/**
+arc/dist/**
+arc/.yo-rc.json
+arc/mozu.config.json
+arc/mozu.config

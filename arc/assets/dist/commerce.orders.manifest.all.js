@@ -1356,188 +1356,150 @@ var paymentHelper = module.exports = {
 },{"./amazonpaysdk":1,"./constants":3,"./helper":4,"mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings":283,"underscore":368}],6:[function(require,module,exports){
 module.exports = {
 
-  'embedded.commerce.payments.action.performPaymentInteraction': {
-      actionName: 'embedded.commerce.payments.action.performPaymentInteraction',
-      customFunction: require('./domains/commerce.payments/embedded.commerce.payments.action.performPaymentInteraction')
+  'processOrderActionAfter': {
+      actionName: 'embedded.commerce.orders.action.after',
+      customFunction: require('./domains/commerce.orders/processOrderActionAfter')
   },
 
-  'amazonPaymentActionBefore': {
-      actionName: 'embedded.commerce.payments.action.before',
-      customFunction: require('./domains/commerce.payments/amazonPaymentActionBefore')
+  'amazonSetFulfillmentInfo': {
+      actionName: 'http.commerce.orders.setFulFillmentInfo.before',
+      customFunction: require('./domains/commerce.orders/setFulfillmentInfoBefore')
   }
 };
 
-},{"./domains/commerce.payments/amazonPaymentActionBefore":7,"./domains/commerce.payments/embedded.commerce.payments.action.performPaymentInteraction":8}],7:[function(require,module,exports){
+},{"./domains/commerce.orders/processOrderActionAfter":7,"./domains/commerce.orders/setFulfillmentInfoBefore":8}],7:[function(require,module,exports){
 /**
- * Implementation for embedded.commerce.payments.action.before
-
- * This custom function will receive the following context object:
-{
-  "exec": {
-    "setActionAmount": {
-      "parameters": [
-        {
-          "name": "amount",
-          "type": "number"
-        }
-      ],
-      "return": {
-        "type": "mozu.commerceRuntime.contracts.payments.paymentAction"
-      }
-    },
-    "setPaymentData": {
-      "parameters": [
-        {
-          "name": "key",
-          "type": "string"
-        },
-        {
-          "name": "value",
-          "type": "object"
-        }
-      ]
-    },
-    "removePaymentData": {
-      "parameters": [
-        {
-          "name": "key",
-          "type": "string"
-        }
-      ]
-    },
-    "setActionPreAuthFlag": {
-      "parameters": [
-        {
-          "name": "isPreAuth",
-          "type": "bool"
-        }
-      ]
-    }
-  },
-  "get": {
-    "payment": {
-      "parameters": [],
-      "return": {
-        "type": "mozu.commerceRuntime.contracts.payments.payment"
-      }
-    },
-    "paymentAction": {
-      "parameters": [],
-      "return": {
-        "type": "mozu.commerceRuntime.contracts.payments.paymentAction"
-      }
-    }
-  }
-}
-
-
- */
-
- var paymentConstants = require("../../amazon/constants");
- var AmazonCheckout = require("../../amazon/checkout");
- var _ = require("underscore");
-
-module.exports = function(context, callback) {
-    var payment = context.get.payment();
-    var paymentAction = context.get.paymentAction();
-    console.log(payment);
-  if (payment.paymentType !== paymentConstants.PAYMENTSETTINGID  && payment.paymentWorkflow !== paymentConstants.PAYMENTSETTINGID)
-    callback();
-
-  console.log("is For checkout", context.get.isForCheckout());
-  
-  var amazonCheckout = new AmazonCheckout(context, callback);
-  var order = amazonCheckout.getOrder();
-
-  var existingPayment = getPayment(order, "Collected");
-
-  var billingInfo = context.get.payment().billingInfo;
-
-  if (existingPayment) {
-    billingInfo.externalTransactionId = existingPayment.externalTransactionId;
-    billingInfo.data = existingPayment.data;
-    context.exec.setExternalTransactionId(billingInfo.externalTransactionId);
-    updateBillingInfo(context, callback, billingInfo);
-  } else {
-
-     console.log("Payment before",paymentAction.actionName );
-     var awsReferenceId = "";
-
-     try {
-        if (payment.data && payment.data.awsData )
-            awsReferenceId = payment.data.awsData.awsReferenceId;
-        else
-        {
-            var newPayment =getPayment(order, "New");
-            console.log(newPayment);
-            if (newPayment)
-                awsReferenceId = newPayment.externalTransactionId;
-        }
-
-        if (awsReferenceId && paymentAction.actionName === "CreatePayment") {
-            amazonCheckout.validateAmazonOrder(awsReferenceId).then(function() {
-                amazonCheckout.getBillingInfo(awsReferenceId, billingInfo.billingContact)
-                .then(function(billingContact) {
-                    billingInfo.billingContact = billingContact;
-                    billingInfo.externalTransactionId = context.get.payment().externalTransactionId;
-                    updateBillingInfo(context, callback, billingInfo);
-                });
-            });
-        } else {
-            updateBillingInfo(context, callback, billingInfo);
-        }
-     } catch(e) {
-         console.error("Amazon payment before", e);
-         callback(e);
-     }
-  }
-};
-
-
-function getPayment(order, status) {
-    console.log(order);
-     return _.find(order.payments,function(payment) {
-                                        return payment.paymentType === paymentConstants.PAYMENTSETTINGID  &&
-                                                payment.paymentWorkflow === paymentConstants.PAYMENTSETTINGID &&
-                                                payment.status === status;   });
-}
-
-
-function updateBillingInfo(context, callback, billingInfo) {
-    context.exec.setBillingInfo(billingInfo);
-     callback();
-}
-
-},{"../../amazon/checkout":2,"../../amazon/constants":3,"underscore":368}],8:[function(require,module,exports){
-/**
- * Implementation for embedded.commerce.payments.action.performPaymentInteraction
+ * Implementation for embedded.commerce.orders.action.after
  * This function will receive the following context object:
 
 {
   &#34;exec&#34;: {
-    &#34;addPaymentInteraction&#34;: {
+    &#34;setItemAllocation&#34;: {
       &#34;parameters&#34;: [
         {
-          &#34;name&#34;: &#34;paymentInteraction&#34;,
+          &#34;name&#34;: &#34;allocationId&#34;,
+          &#34;type&#34;: &#34;number&#34;
+        },
+        {
+          &#34;name&#34;: &#34;expiration&#34;,
+          &#34;type&#34;: &#34;date&#34;
+        },
+        {
+          &#34;name&#34;: &#34;productCode&#34;,
+          &#34;type&#34;: &#34;string&#34;
+        },
+        {
+          &#34;name&#34;: &#34;itemId&#34;,
           &#34;type&#34;: &#34;string&#34;
         }
       ],
       &#34;return&#34;: {
-        &#34;type&#34;: &#34;mozu.commerceRuntime.contracts.payments.paymentInteraction&#34;
+        &#34;type&#34;: &#34;mozu.commerceRuntime.contracts.order.orderItem&#34;
+      }
+    },
+    &#34;setAttribute&#34;: {
+      &#34;parameters&#34;: [
+        {
+          &#34;name&#34;: &#34;fqn&#34;,
+          &#34;type&#34;: &#34;string&#34;
+        },
+        {
+          &#34;name&#34;: &#34;values&#34;,
+          &#34;type&#34;: &#34;object&#34;
+        }
+      ],
+      &#34;return&#34;: {
+        &#34;type&#34;: &#34;mozu.commerceRuntime.contracts.order.order&#34;
+      }
+    },
+    &#34;removeAttribute&#34;: {
+      &#34;parameters&#34;: [
+        {
+          &#34;name&#34;: &#34;fqn&#34;,
+          &#34;type&#34;: &#34;string&#34;
+        }
+      ],
+      &#34;return&#34;: {
+        &#34;type&#34;: &#34;mozu.commerceRuntime.contracts.order.order&#34;
+      }
+    },
+    &#34;setData&#34;: {
+      &#34;parameters&#34;: [
+        {
+          &#34;name&#34;: &#34;key&#34;,
+          &#34;type&#34;: &#34;string&#34;
+        },
+        {
+          &#34;name&#34;: &#34;value&#34;,
+          &#34;type&#34;: &#34;object&#34;
+        }
+      ],
+      &#34;return&#34;: {
+        &#34;type&#34;: &#34;mozu.commerceRuntime.contracts.order.order&#34;
+      }
+    },
+    &#34;removeData&#34;: {
+      &#34;parameters&#34;: [
+        {
+          &#34;name&#34;: &#34;key&#34;,
+          &#34;type&#34;: &#34;string&#34;
+        }
+      ],
+      &#34;return&#34;: {
+        &#34;type&#34;: &#34;mozu.commerceRuntime.contracts.order.order&#34;
+      }
+    },
+    &#34;setItemData&#34;: {
+      &#34;parameters&#34;: [
+        {
+          &#34;name&#34;: &#34;key&#34;,
+          &#34;type&#34;: &#34;string&#34;
+        },
+        {
+          &#34;name&#34;: &#34;value&#34;,
+          &#34;type&#34;: &#34;object&#34;
+        },
+        {
+          &#34;name&#34;: &#34;itemId&#34;,
+          &#34;type&#34;: &#34;string&#34;
+        }
+      ],
+      &#34;return&#34;: {
+        &#34;type&#34;: &#34;mozu.commerceRuntime.contracts.order.orderItem&#34;
+      }
+    },
+    &#34;removeItemData&#34;: {
+      &#34;parameters&#34;: [
+        {
+          &#34;name&#34;: &#34;key&#34;,
+          &#34;type&#34;: &#34;string&#34;
+        },
+        {
+          &#34;name&#34;: &#34;itemId&#34;,
+          &#34;type&#34;: &#34;string&#34;
+        }
+      ],
+      &#34;return&#34;: {
+        &#34;type&#34;: &#34;mozu.commerceRuntime.contracts.order.orderItem&#34;
+      }
+    },
+    &#34;setDutyAmount&#34;: {
+      &#34;parameters&#34;: [
+        {
+          &#34;name&#34;: &#34;dutyAmount&#34;,
+          &#34;type&#34;: &#34;number&#34;
+        }
+      ],
+      &#34;return&#34;: {
+        &#34;type&#34;: &#34;mozu.commerceRuntime.contracts.order.order&#34;
       }
     }
   },
   &#34;get&#34;: {
-    &#34;payment&#34;: {
+    &#34;order&#34;: {
       &#34;parameters&#34;: [],
       &#34;return&#34;: {
-        &#34;type&#34;: &#34;mozu.commerceRuntime.contracts.payments.payment&#34;
-      }
-    },
-    &#34;paymentAction&#34;: {
-      &#34;parameters&#34;: [],
-      &#34;return&#34;: {
-        &#34;type&#34;: &#34;mozu.commerceRuntime.contracts.payments.paymentAction&#34;
+        &#34;type&#34;: &#34;mozu.commerceRuntime.contracts.orders.order&#34;
       }
     }
   }
@@ -1545,18 +1507,46 @@ function updateBillingInfo(context, callback, billingInfo) {
 
  */
 
+ var AmazonCheckout = require("../../amazon/checkout");
+
+
+module.exports = function(context, callback) {
+  console.log("Order action", context);
+  try{
+    var amazonCheckout = new AmazonCheckout(context, callback);
+    amazonCheckout.closeOrder();
+  } catch(e) {
+    callback(e);
+  } 
+};
+},{"../../amazon/checkout":2}],8:[function(require,module,exports){
+/**
+ * Implementation for http.storefront.pages.global.request.before
+ * This function will receive the following context object:
+
+{
+  &#34;type&#34;: &#34;mozu.actions.context.http&#34;
+}
+
+ */
+
+
+//var AmazonCheckout = require("../../amazoncheckout");
+
+
 var AmazonCheckout = require("../../amazon/checkout");
 
 module.exports = function(context, callback) {
-  try {
-    var amazonCheckout = new AmazonCheckout(context, callback);
-    amazonCheckout.processPayment();
-  } catch(e) {
-    callback(e);
-  }
 
+	try {	
+		//console.log(context.request.params);
+		var amazonCheckout = new AmazonCheckout(context, callback);
+	    amazonCheckout.addFulfillmentInfo();
+    } catch(e) {
+	   callback(e);
+	}
+  
 };
-
 },{"../../amazon/checkout":2}],9:[function(require,module,exports){
 var asn1 = exports;
 
