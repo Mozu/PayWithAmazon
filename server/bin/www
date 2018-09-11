@@ -5,7 +5,7 @@
  */
 
 var app = require('../app');
-var debug = require('debug')('phippspay:server');
+var debug = require('debug')('paywithamazon:server');
 var http = require('http');
 
 /**

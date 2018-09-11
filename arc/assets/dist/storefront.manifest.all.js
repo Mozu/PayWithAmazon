@@ -81,7 +81,7 @@ var validateAndProcess = function(context, callback) {
   
        return tokenApi.execute({cardType: "PAYWITHAMAZON"}, {body: {methodName: "validateToken", body:{ access_token: params.access_token } }})
         .then(function(tokenResponse) {
-  
+          console.log('token response', tokenResponse);
           var isTokenValid = tokenResponse.user_id;
           console.log("Is Amazon token valid", isTokenValid);
   
@@ -193,21 +193,6 @@ var helper = module.exports = {
 			return context.response.end();
 		}
 	},
-  /*getUserEmail : function(context) {
-    if (!context.items || !context.items.pageContext || !context.items.pageContext.user) return null;
-    var user = context.items.pageContext.user;
-    console.log("user", user);
-    if ( !user.isAnonymous && user.IsAuthenticated ) {
-      console.log(user);
-      return user.email;
-    }
-    return null;
-  },
-	getPaymentFQN: function(context) {
-		var appInfo = getAppInfo(context);
-		console.log("App Info", appInfo);
-		return appInfo.namespace+"~"+paymentConstants.PAYMENTSETTINGID;
-	},*/
 	isAmazonCheckout: function (context) { //used
 	  var params = this.parseUrlParams(context);
 	  var hasAmzParams = _.has(params, 'access_token') && _.has(params, "isAwsCheckout");
@@ -227,37 +212,6 @@ var helper = module.exports = {
 	isCheckoutPage: function(context) { //used
 		return context.request.url.indexOf("/checkout") > -1;
 	},
-	/*getOrderDetails: function(context) {
-		var generalSettingsClient = this.createClientFromContext(GeneralSettings, context, true);
-
-	  	return generalSettingsClient.getGeneralSettings()
-	  		.then(function(settings){
-					var order = null;
-					if (context.get.isForOrder() || context.get.isForReturn())
-						order = context.get.order();
-					else
-						order = context.get.checkout();
-						
-			    //return orderClient.getOrder({orderId: orderId})
-			    //.then(function(order) {
-			      return {orderNumber: order.orderNumber || order.number, websiteName: settings.websiteName, payments: order.payments};
-			    //});
-	  		});
-	},
-	getUniqueId: function () {
-	  var guid = Guid.create();
-	  return guid.value.replace(/\-/g, "");
-	},
-	getValue: function(paymentSetting, key) {
-	  var value = _.findWhere(paymentSetting.credentials, {"apiName" : key}) || _.findWhere(paymentSetting.Credentials, {"APIName" : key});
-
-	    if (!value) {
-	      console.log(key+" not found");
-	      return;
-	    }
-	    //console.log("Key: "+key, value.value );
-	    return value.value || value.Value;
-	},*/
 	addErrorToModel: function(context, callback, err) {
 	    console.error("Adding error to viewData", err);
 	    var message = err;

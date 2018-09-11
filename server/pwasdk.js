@@ -102,8 +102,10 @@ const executeRequest = async (action, params, config) => {
 	console.log("Post url", url);
 	try {
 		const requestBody = buildParamString(params,false);
+		if (process.env.proxy)
+			proxy =  "proxy: \""+process.env.proxy+"\"";
 		const result = await request({ headers: {'Content-Length' : requestBody.length, 'Content-Type': 'application/x-www-form-urlencoded'},
-									uri: url, method: 'POST', body: requestBody});
+									uri: url, method: 'POST', body: requestBody, proxy});
 		return parser.toJson(result, {"object": true});
 	} catch(ex) {
 		if (ex.response && ex.response.headers && ex.response.headers["content-type"] == "text/xml") {
@@ -219,7 +221,11 @@ const getProfile = async (access_token, config) => {
 		const url = "https://"+(config.isSandbox ? "api.sandbox" : "api")+"."+profileEndpointUrls[config.awsRegion]+"/user/profile";
 		console.log('Profile Url', url);
 		console.log("access_token", access_token);
-		const result = await request({ headers: {'Authorization' : 'bearer '+access_token},uri: url, method: 'GET', proxy:"http://localhost:8888"});
+		let proxy = null;
+		if (process.env.proxy)
+			proxy =  "proxy: \""+process.env.proxy+"\"";
+		const result = await request({ headers: {'Authorization' : 'bearer '+access_token},uri: url, method: 'GET', proxy});
+
 		return JSON.parse(result);
 	} catch(ex) {
 		if (ex.response && ex.response.headers && ex.response.headers["content-type"] == "application/json;charset=UTF-8") {
