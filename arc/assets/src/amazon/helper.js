@@ -1,23 +1,17 @@
-
-var getAppInfo = require('mozu-action-helpers/get-app-info');
 var url = require("url");
 var qs = require("querystring");
 var _ = require("underscore");
 var constants = require("mozu-node-sdk/constants");
-var paymentConstants = require("./constants");
-var GeneralSettings = require('mozu-node-sdk/clients/commerce/settings/generalSettings');
-var Order = require("mozu-node-sdk/clients/commerce/order");
-var Guid = require('guid');
 
 
 var helper = module.exports = {
-	createClientFromContext: function (client, context, removeClaims) {
+	createClientFromContext: function (client, context, removeClaims) { //used
 	  var c = client(context);
 	  if (removeClaims)
 		  c.context[constants.headers.USERCLAIMS] = null;
 	  return c;
 	},
-	validateUserSession : function(context) {
+	validateUserSession : function(context) { //used
 		var user = context.items.pageContext.user;
 		if ( !user.isAnonymous && !user.IsAuthenticated )
 		{
@@ -30,7 +24,7 @@ var helper = module.exports = {
 			return context.response.end();
 		}
 	},
-  getUserEmail : function(context) {
+  /*getUserEmail : function(context) {
     if (!context.items || !context.items.pageContext || !context.items.pageContext.user) return null;
     var user = context.items.pageContext.user;
     console.log("user", user);
@@ -44,27 +38,27 @@ var helper = module.exports = {
 		var appInfo = getAppInfo(context);
 		console.log("App Info", appInfo);
 		return appInfo.namespace+"~"+paymentConstants.PAYMENTSETTINGID;
-	},
-	isAmazonCheckout: function (context) {
+	},*/
+	isAmazonCheckout: function (context) { //used
 	  var params = this.parseUrlParams(context);
 	  var hasAmzParams = _.has(params, 'access_token') && _.has(params, "isAwsCheckout");
 	  console.log("is Amazon checkout?", hasAmzParams);
 	  return hasAmzParams;
 	},
-	parseUrlParams: function(context) {
+	parseUrlParams: function(context) { //used
 		var request = context.request;
 		var urlParseResult = url.parse(request.url);
 		console.log("parsedUrl", urlParseResult);
 		queryStringParams = qs.parse(urlParseResult.query);
 		return queryStringParams;
 	},
-	isCartPage: function(context) {
+	isCartPage: function(context) { //used
 		return context.request.url.indexOf("/cart") > -1;
 	},
-	isCheckoutPage: function(context) {
+	isCheckoutPage: function(context) { //used
 		return context.request.url.indexOf("/checkout") > -1;
 	},
-	getOrderDetails: function(context) {
+	/*getOrderDetails: function(context) {
 		var generalSettingsClient = this.createClientFromContext(GeneralSettings, context, true);
 
 	  	return generalSettingsClient.getGeneralSettings()
@@ -94,7 +88,7 @@ var helper = module.exports = {
 	    }
 	    //console.log("Key: "+key, value.value );
 	    return value.value || value.Value;
-	},
+	},*/
 	addErrorToModel: function(context, callback, err) {
 	    console.error("Adding error to viewData", err);
 	    var message = err;

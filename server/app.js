@@ -7,6 +7,7 @@ const authorizewithtoken  = require('./routes/authorizewithtoken');
 const capture             = require('./routes/capture');
 const credit              = require('./routes/credit');
 const voidTran            = require('./routes/void');
+const validateToken       = require('./routes/validateToken');
 const helper              = require('./helper');
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
@@ -42,6 +43,7 @@ app.use("/authorizewithtoken", authorizewithtoken);
 app.use("/capture", capture);
 app.use("/credit", credit);
 app.use('/void', voidTran);
+app.use('/validateToken', validateToken);
 app.get('/', function (req, res) {
     res.send('Hello World!')
 });

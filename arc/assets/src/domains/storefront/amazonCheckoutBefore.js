@@ -21,14 +21,14 @@
 
  */
 
- var AmazonCheckout = require("../../amazon/checkout");
+var validateAndProcess = require("../../amazon/checkout").validateAndProcess;
+var setError = require("../../amazon/checkout").setError;
 
-
-module.exports = function(context, callback) {
-	var amazonCheckout = new AmazonCheckout(context, callback);
-    amazonCheckout.validateAndProcess().then(callback, function(e){
-      amazonCheckout.setError(e);
-    }).catch(function(e){
-      amazonCheckout.setError(e);
-    });
+module.exports = function (context, callback) {
+  validateAndProcess(context, callback).then(function() {
+    callback();
+  }).catch(function(err) {
+    console.log(err);
+    setError(err, context, callback);
+  });
 };

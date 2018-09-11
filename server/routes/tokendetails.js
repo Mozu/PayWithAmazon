@@ -72,7 +72,7 @@ router.post('/', async (req, res, next) => {
     //pwaSDK.configure(req.body.config);
     
     try {
-        const token = req.body.token.token;
+        const token = req.body.token.token || req.body.payload.token;
         console.log(token);
         const orderReferenceId = token.awsReferenceId;
         const addressConsentToken = token.addressAuthorizationToken;
@@ -85,7 +85,7 @@ router.post('/', async (req, res, next) => {
             remoteConnectionStatus: "Success",
             responseCode : "OK",
             "isDeclined": false,
-            details: {
+            response: {
                     shippingContact: getShippingContact(awsOrder),
                     billingContact: getBillingContact(awsOrder)
                 }
@@ -96,7 +96,7 @@ router.post('/', async (req, res, next) => {
             remoteConnectionStatus: err.remoteConnectionStatus,
             responseCode : "Error",
             "isDeclined": true,
-            details: {
+            response : {
                 error: err,
             }
         });

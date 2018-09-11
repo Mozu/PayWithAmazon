@@ -25,7 +25,7 @@
 
 var helper = require('../../amazon/helper');
 
-module.exports = function(context, callback) {
+module.exports = function(context, callback)  {
   var amazonError = context.cache.request.get("amazonError");
   if (amazonError) helper.addErrorToModel(context,callback, amazonError);
   else callback();

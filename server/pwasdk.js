@@ -103,7 +103,7 @@ const executeRequest = async (action, params, config) => {
 	try {
 		const requestBody = buildParamString(params,false);
 		const result = await request({ headers: {'Content-Length' : requestBody.length, 'Content-Type': 'application/x-www-form-urlencoded'},
-									uri: url, method: 'POST', body: requestBody, proxy:"http://localhost:8888"});
+									uri: url, method: 'POST', body: requestBody});
 		return parser.toJson(result, {"object": true});
 	} catch(ex) {
 		if (ex.response && ex.response.headers && ex.response.headers["content-type"] == "text/xml") {
@@ -208,35 +208,28 @@ const closeAuthorization = async(authorizationId, config) => {
 	return executeRequest("CloseAuthorization", params,config);
 }
 
-const validateToken = async (access_token) => {
-	/*var promise = new Promise(function(resolve, reject){
-		self.getProfile(access_token).then(function(data) {
-				resolve(true);
-			}, function(err) {
-				console.error("Validate token error", err);
-				resolve(false);
-			}
-		);
-	});
-	return promise;*/
+const validateToken = async (access_token, config) => {
+	return getProfile(access_token, config);
 };
 
-const getProfile = async (access_token) => {
-	//access_token = encodeURIComponent(access_token);
-	/*var promise = new Promise(function(resolve, reject) {
-  console.log('get profile to validate access token');
+const getProfile = async (access_token, config) => {
+	//const encodedAccessToken = encodeURIComponent(access_token);
 
-		needle.get("https://"+self.config.profileEnvt+"."+profileEndpointUrls[self.config.region]+"/user/profile",{ headers: {'Authorization':'bearer '+access_token}},
-			function(err, response, body){
-				if (response.statusCode != 200)
-					reject(response.body);
-				else {
-					resolve(body);
-				}
-			}
-		);
-	});
-	return promise;*/
+	try {
+		const url = "https://"+(config.isSandbox ? "api.sandbox" : "api")+"."+profileEndpointUrls[config.awsRegion]+"/user/profile";
+		console.log('Profile Url', url);
+		console.log("access_token", access_token);
+		const result = await request({ headers: {'Authorization' : 'bearer '+access_token},uri: url, method: 'GET', proxy:"http://localhost:8888"});
+		return JSON.parse(result);
+	} catch(ex) {
+		if (ex.response && ex.response.headers && ex.response.headers["content-type"] == "application/json;charset=UTF-8") {
+			ex = JSON.parse(ex);
+			throw {remoteConnectionStatus : "Success", code:ex.error, message: ex.error_description};
+		}
+		else 
+			throw {type:'network', code:'unknown', message:ex.message, remoteConnectionStatus: "Error"};
+	}
+
 };
 
 

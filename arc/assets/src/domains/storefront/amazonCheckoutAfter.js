@@ -21,15 +21,13 @@
 
  */
 
-var AmazonCheckout = require("../../amazon/checkout");
-
 var helper = require('../../amazon/helper');
+var addViewData = require('../../amazon/checkout').addViewData;
 
 module.exports = function(context, callback) {
   var amazonError = context.cache.request.get("amazonError");
-  if (amazonError) helper.setError(context,callback, amazonError);
+  if (amazonError) helper.addErrorToModel(context,callback, amazonError);
   else {
-    var amazonCheckout = new AmazonCheckout(context, callback);
-    amazonCheckout.addViewData();
+    addViewData(context, callback);
   }
 };
