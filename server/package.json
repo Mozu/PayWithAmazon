@@ -1,27 +1,27 @@
 {
-  "name": "mozu.paywithamazon.extensible",
-  "version": "1.0.0",
-  "description": "",
-  "main": "app.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "author": "",
-  "license": "ISC",
-  "scripts": {
-    "start": "node bin/www"
-  },
-  "dependencies": {
-    "body-parser": "^1.18.3",
-    "cookie-parser": "^1.4.3",
-    "crypto": "^1.0.1",
-    "express": "^4.16.3",
-    "guid": "0.0.12",
-    "moment": "^2.22.2",
-    "npm": "^6.4.1",
-    "request": "^2.88.0",
-    "request-promise": "^4.2.2",
-    "underscore": "^1.9.1",
-    "xml2json": "^0.11.2"
-  }
+    "name": "mozu.paywithamazon.extensible",
+    "version": "1.0.0",
+    "description": "",
+    "main": "app.js",
+    "scripts": {
+        "start": "node bin/www",
+        "build": "docker build -t mozu/paywithamazon .",
+        "auth": "$(aws ecr get-login --no-include-email --region us-east-1)",
+        "publish-ecr": "docker tag mozu/paywithamazon:latest 542216209467.dkr.ecr.us-east-1.amazonaws.com/mozu/paywithamazon:latest && docker push 542216209467.dkr.ecr.us-east-1.amazonaws.com/mozu/paywithamazon:latest"
+    },
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "body-parser": "^1.18.3",
+        "cookie-parser": "^1.4.3",
+        "crypto": "^1.0.1",
+        "express": "^4.16.3",
+        "guid": "0.0.12",
+        "moment": "^2.22.2",
+        "npm": "^6.4.1",
+        "request": "^2.88.0",
+        "request-promise": "^4.2.2",
+        "underscore": "^1.9.1",
+        "xml2json": "^0.11.2"
+    }
 }

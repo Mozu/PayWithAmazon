@@ -1,5 +1,7 @@
 FROM node:8
 
+
+RUN mkdir -p /usr/src/app
 # Create app directory
 WORKDIR /usr/src/app
 
@@ -13,5 +15,7 @@ RUN npm install --only=production
 # Bundle app source
 COPY . .
 
-#EXPOSE 8080
+
+ENV PORT=3030 
+EXPOSE 3030
 CMD [ "npm", "start" ]
