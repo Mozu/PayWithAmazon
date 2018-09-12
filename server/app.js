@@ -22,6 +22,7 @@ app.use((req, res, next) => {
         return next();
     }
 
+    req.body.captureOnAuth = false;
     if (req.url === '/authorizeandcapturewithtoken')
     {
         req.body.captureOnAuth = true;
