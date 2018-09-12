@@ -1,12 +1,10 @@
-const express   = require('express');
-const router    = express.Router();
-const validateToken    = require("../pwasdk").validateToken;
-
+const express           = require('express');
+const router            = express.Router();
+const validateToken     = require("../pwasdk").validateToken;
+const helper            = require('../helper');
 
 router.post('/', async (req, res, next) => {
 
-    //pwaSDK.configure(req.body.config);
-    
     try {
         const payload = req.body.payload;
         const profile = await validateToken(payload.access_token, req.body.config);
@@ -18,15 +16,7 @@ router.post('/', async (req, res, next) => {
             response: profile
             });
     } catch(err) {
-        console.log(err);
-        res.json({
-            remoteConnectionStatus: err.remoteConnectionStatus,
-            responseCode : "Error",
-            "isDeclined": true,
-            response: {
-                error: err,
-            }
-        });
+        helper.errorHandler(res, err, true);
     }
 
 });

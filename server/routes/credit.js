@@ -38,13 +38,7 @@ router.post('/', async (req, res, next) => {
             ]
         });
     } catch(err) {
-        console.log(err);
-        res.json(
-            {remoteConnectionStatus: err.remoteConnectionStatus,
-            "isDeclined": true,
-            "responseCode" : err.code,
-            "responseText" : err.message
-        });
+        helper.errorHandler(res, err);
     }
 });
 

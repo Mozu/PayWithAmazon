@@ -1,6 +1,7 @@
 const express   = require('express');
 const router    = express.Router();
 const pwaSDK    = require("../pwasdk");
+const helper   = require('../helper');
 
 const getShippingContact = (awsOrder) => {
     const orderDetails = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails;
@@ -68,8 +69,6 @@ const getBillingContact = (awsOrder) => {
 }
 
 router.post('/', async (req, res, next) => {
-
-    //pwaSDK.configure(req.body.config);
     
     try {
         const token = req.body.token.token || req.body.payload.token;
@@ -91,15 +90,7 @@ router.post('/', async (req, res, next) => {
                 }
             });
     } catch(err) {
-        console.log(err);
-        res.json({
-            remoteConnectionStatus: err.remoteConnectionStatus,
-            responseCode : "Error",
-            "isDeclined": true,
-            response : {
-                error: err,
-            }
-        });
+        helper.errorHandler(res, err, true);
     }
 
 });

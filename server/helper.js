@@ -29,3 +29,21 @@ module.exports.getGuid = 	() => {
   var guid = Guid.create();
   return guid.value.replace(/\-/g, "");
 }
+
+module.exports.errorHandler = (res, err, addRawError) => {
+    console.log(err);
+    let errorResponse = {
+        remoteConnectionStatus: err.remoteConnectionStatus,
+        "isDeclined": true
+      };
+    
+    if (!addRawError) {
+      errorResponse.responseCode = err.code;
+      errorResponse.responseText = err.message;
+    } else {
+      errorResponse.responseCode = "Error";
+      errorResponse.response = {error : err};
+    }
+
+    res.json(errorResponse);
+}

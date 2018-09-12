@@ -50,7 +50,7 @@ app.use("/credit", credit);
 app.use('/void', voidTran);
 app.use('/validateToken', validateToken);
 app.get('/', function(req, res) {
-    res.send('Paywith amazon server');
+    res.send('Paywith amazon extensible implementation using node '+process.version);
 });
 
 module.exports = app;

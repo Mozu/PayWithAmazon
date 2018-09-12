@@ -82,6 +82,9 @@ var validateAndProcess = function(context, callback) {
        return tokenApi.execute({cardType: "PAYWITHAMAZON"}, {body: {methodName: "validateToken", body:{ access_token: params.access_token } }})
         .then(function(tokenResponse) {
           console.log('token response', tokenResponse);
+          if (tokenResponse.error)
+            throw tokenResponse.error;
+            
           var isTokenValid = tokenResponse.user_id;
           console.log("Is Amazon token valid", isTokenValid);
   

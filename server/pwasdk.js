@@ -102,10 +102,11 @@ const executeRequest = async (action, params, config) => {
 	console.log("Post url", url);
 	try {
 		const requestBody = buildParamString(params,false);
+		let proxy = null;
 		if (process.env.proxy)
-			proxy =  "proxy: \""+process.env.proxy+"\"";
+			proxy =  "proxy: \""+process.env.proxy.trim()+"\"";
 		const result = await request({ headers: {'Content-Length' : requestBody.length, 'Content-Type': 'application/x-www-form-urlencoded'},
-									uri: url, method: 'POST', body: requestBody, proxy});
+									uri: url, method: 'POST', body: requestBody, proxy: "http://localhost:8888"});
 		return parser.toJson(result, {"object": true});
 	} catch(ex) {
 		if (ex.response && ex.response.headers && ex.response.headers["content-type"] == "text/xml") {
@@ -223,7 +224,8 @@ const getProfile = async (access_token, config) => {
 		console.log("access_token", access_token);
 		let proxy = null;
 		if (process.env.proxy)
-			proxy =  "proxy: \""+process.env.proxy+"\"";
+			proxy =  "proxy: \""+process.env.proxy.trim()+"\"";
+		console.log(proxy);
 		const result = await request({ headers: {'Authorization' : 'bearer '+access_token},uri: url, method: 'GET', proxy});
 
 		return JSON.parse(result);
