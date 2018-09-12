@@ -10,8 +10,11 @@ router.post('/', async (req, res, next) => {
         const currencyCode = transaction.currencyCode;
         const amount = req.body.amount;
         const config = req.body.config;
-        const captureInteraction = helper.getInteractionByStatus(transaction.gatewayInteractions,"Capture");
+        let captureInteraction = helper.getInteractionByStatus(transaction.gatewayInteractions,"Capture");
 
+        if (!captureInteraction)
+            captureInteraction = helper.getInteractionByStatus(transaction.gatewayInteractions, "AuthorizeAndCapture");
+            
         if (!captureInteraction) {
             throw {code: "CaptureNotFound", message: "Capture not found for credit request"};
         }
