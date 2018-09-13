@@ -106,7 +106,7 @@ const executeRequest = async (action, params, config) => {
 		if (process.env.proxy)
 			proxy =  "proxy: \""+process.env.proxy.trim()+"\"";
 		const result = await request({ headers: {'Content-Length' : requestBody.length, 'Content-Type': 'application/x-www-form-urlencoded'},
-									uri: url, method: 'POST', body: requestBody, proxy: "http://localhost:8888"});
+									uri: url, method: 'POST', body: requestBody, proxy: proxy});
 		return parser.toJson(result, {"object": true});
 	} catch(ex) {
 		if (ex.response && ex.response.headers && ex.response.headers["content-type"] == "text/xml") {
