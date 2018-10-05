@@ -9,6 +9,8 @@ const credit = require('./routes/credit');
 const voidTran = require('./routes/void');
 const validateToken = require('./routes/validateToken');
 const helper = require('./helper');
+const apv = require('appversion');
+const logger = require('./logger');
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
@@ -56,8 +58,12 @@ app.use("/capture", capture);
 app.use("/credit", credit);
 app.use('/void', voidTran);
 app.use('/validateToken', validateToken);
+
 app.get('/', function(req, res) {
-    res.send('Paywith amazon extensible implementation using node '+process.version);
+    const apvVersion = apv.getAppVersionSync();
+    const appVersion = apvVersion.version.major+"."+apvVersion.version.minor+"."+apvVersion.version.patch;
+    logger.info("App version "+appVersion);
+    res.send('Pay with amazon extensible implementation using node '+process.version+", app version: "+appVersion+", build Date: " +apvVersion.build.date);
 });
 
 module.exports = app;

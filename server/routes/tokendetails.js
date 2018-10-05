@@ -2,11 +2,12 @@ const express   = require('express');
 const router    = express.Router();
 const pwaSDK    = require("../pwasdk");
 const helper   = require('../helper');
+const logger   = require('../logger');
 
 const getShippingContact = (awsOrder) => {
     const orderDetails = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails;
     const destinationPath = orderDetails.Destination.PhysicalDestination;
-    console.log(destinationPath);
+  
 
     const name =  destinationPath.Name;
     const nameSplit = name.split(/\s/);
@@ -32,7 +33,7 @@ const getShippingContact = (awsOrder) => {
                 "isValidated": "true"
             }
         };
-    console.log("Shipping contact" ,contact);
+    logger.info("Shipping contact" , JSON.stringify(contact));
     return contact;
 }
 
@@ -63,7 +64,7 @@ const getBillingContact = (awsOrder) => {
                 "isValidated": "true"
             }
         };
-    console.log("Billing contact" ,contact);
+    logger.info("Billing contact" ,JSON.stringify(contact));
     return contact;
   
 }
@@ -72,14 +73,15 @@ router.post('/', async (req, res, next) => {
     
     try {
         const token = req.body.token.token || req.body.payload.token;
-        console.log(token);
+        logger.info(token);
         const orderReferenceId = token.awsReferenceId;
         const addressConsentToken = token.addressAuthorizationToken;
-        console.log("OrderReferenceId  " +orderReferenceId);
-        console.log("Address Consent Token  " +addressConsentToken);
+        logger.info("OrderReferenceId  " +orderReferenceId);
+        logger.info("Address Consent Token  " +addressConsentToken);
 
         const awsOrder = await pwaSDK.getOrderDetails(orderReferenceId, addressConsentToken, req.body.config);
-        console.log(awsOrder);
+        logger.info(JSON.stringify(awsOrder));
+
         res.json({
             remoteConnectionStatus: "Success",
             responseCode : "OK",
@@ -89,6 +91,7 @@ router.post('/', async (req, res, next) => {
                     billingContact: getBillingContact(awsOrder)
                 }
             });
+        
     } catch(err) {
         helper.errorHandler(res, err, true);
     }

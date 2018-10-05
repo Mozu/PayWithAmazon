@@ -1,7 +1,7 @@
 const router   = require('express').Router();
 const refund   = require("../pwasdk").refund;
 const helper   = require('../helper');
-
+const logger   = require('../logger');
 
 
 router.post('/', async (req, res, next) => {
@@ -10,7 +10,14 @@ router.post('/', async (req, res, next) => {
         const currencyCode = transaction.currencyCode;
         const amount = req.body.amount;
         const config = req.body.config;
-        let captureInteraction = helper.getInteractionByStatus(transaction.gatewayInteractions,"Capture");
+        const gatewayInteractionId = req.body.gatewayInteractionId;
+        const captureInteractionType = "Capture";
+        let captureInteraction = null;
+
+        if (gatewayInteractionId)
+            captureInteraction = helper.getInteractionById(transaction.gatewayInteractions,gatewayInteractionId,captureInteractionType);
+        else
+           captureInteraction = helper.getInteractionByStatus(transaction.gatewayInteractions,captureInteractionType);
 
         if (!captureInteraction)
             captureInteraction = helper.getInteractionByStatus(transaction.gatewayInteractions, "AuthorizeAndCapture");
@@ -28,7 +35,7 @@ router.post('/', async (req, res, next) => {
         const creditDetails =  creditResponse.RefundResponse.RefundResult.RefundDetails;
         const state = creditDetails.RefundStatus.State;
         const creditId = creditDetails.AmazonRefundId;
-        res.json({
+        const response = {
             remoteConnectionStatus: "Success",
             responseCode : "OK",
             "isDeclined":  state != "Pending" && state != "Completed",
@@ -39,7 +46,9 @@ router.post('/', async (req, res, next) => {
             "responseData" : [
                 { "key" : "creditId", "value" : creditId }
             ]
-        });
+        };
+        logger.info(JSON.stringify(response));
+        res.json(response);
     } catch(err) {
         helper.errorHandler(res, err);
     }

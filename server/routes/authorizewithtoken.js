@@ -2,12 +2,9 @@ const express   = require('express');
 const router    = express.Router();
 const pwaSDK    = require("../pwasdk");
 const errorHandler = require('../helper').errorHandler;
-
-
+const logger = require('../logger');
 
 router.post('/', async (req, res, next) => {
-    //pwaSDK.configure(req.body.config);
-    
 
     try {
         const token = req.body.token.token;
@@ -20,12 +17,17 @@ router.post('/', async (req, res, next) => {
         const awsOrder = await pwaSDK.getOrderDetails(orderReferenceId, null,config);
         const captureOnAuthorize = req.body.captureOnAuth;
         const status = awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult.OrderReferenceDetails.OrderReferenceStatus.State;
+
+        logger.info('starting authorize with token for '+orderReferenceId);
+
         if (status === "Draft") {
+            logger.debug("AWS Order "+orderReferenceId+" is in draft state...confirming order");
             await pwaSDK.setOrderDetails(orderReferenceId, {amount,currencyCode,orderNumber}, config);
             await pwaSDK.confirmOrder(orderReferenceId, config);
         }
 
         if (status === "Canceled") {
+            logger.debug("AWS Order "+orderReferenceId+" is in canceled state");
             res.json(
                 {remoteConnectionStatus: "Success",
                 "isDeclined": true,
@@ -67,6 +69,8 @@ router.post('/', async (req, res, next) => {
             response.responseData.push({"key" : "captureId","value" : captureId});
         }
 
+        logger.info(JSON.stringify(response));
+        logger.debug('end authorize with token for '+orderReferenceId);
         res.json(response);
     } catch(err) {
         errorHandler(res, err);

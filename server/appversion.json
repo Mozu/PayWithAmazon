@@ -1,0 +1,23 @@
+{
+  "version": {
+    "major": 1,
+    "minor": 0,
+    "patch": 0
+  },
+  "status": {
+    "stage": null,
+    "number": 0
+  },
+  "build": {
+    "date": "Fri Sep 14 2018 09:06:33 GMT-0500 (Central Daylight Time)",
+    "number": 1,
+    "total": 1
+  },
+  "commit": null,
+  "config": {
+    "appversion": "1.7.1",
+    "markdown": [],
+    "json": [],
+    "ignore": []
+  }
+}

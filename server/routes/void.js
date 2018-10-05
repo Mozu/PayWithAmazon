@@ -1,8 +1,9 @@
-const router   = require('express').Router();
-const cancelOrder   = require("../pwasdk").cancelOrder;
-const closeAuthorization = require('../pwasdk').closeAuthorization;
-const helper   = require('../helper');
-const _  = require('underscore');
+const router                = require('express').Router();
+const cancelOrder           = require("../pwasdk").cancelOrder;
+const closeAuthorization    = require('../pwasdk').closeAuthorization;
+const helper                = require('../helper');
+const _                     = require('underscore');
+const logger                = require('../logger');
 
 
 router.post('/', async (req, res, next) => {
@@ -19,7 +20,7 @@ router.post('/', async (req, res, next) => {
                 return tran;
         })
 
-        console.log("capture tran",captureTran);
+        logger.info("capture tran",captureTran);
         let requestId = "";
         if (captureTran.length > 0) {
             const authorization = helper.getInteractionByStatus(context.transaction.gatewayInteractions, "Authorize");
@@ -34,8 +35,7 @@ router.post('/', async (req, res, next) => {
             const cancelResponse = await cancelOrder(token.awsReferenceId,config);
             requestId = cancelResponse.CancelOrderReferenceResponse.ResponseMetadata.RequestId;
         }
-
-        res.json({
+        const response = {
             remoteConnectionStatus: "Success",
             responseCode : "OK",
             "isDeclined":  false,
@@ -45,7 +45,9 @@ router.post('/', async (req, res, next) => {
             "responseData" : [
                 { "key" : "requestId", "value" : requestId }
             ]
-        });
+        };
+        logger.info(JSON.stringify(response));
+        res.json(response);
     } catch(err) {
         helper.errorHandler(res, err);
     }

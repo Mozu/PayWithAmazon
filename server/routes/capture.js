@@ -1,7 +1,7 @@
 const router   = require('express').Router();
 const capture    = require("../pwasdk").capture;
 const helper  = require('../helper');
-
+const logger = require('../logger');
 
 
 router.post('/', async (req, res, next) => {
@@ -25,7 +25,7 @@ router.post('/', async (req, res, next) => {
         const captureDetails = captureResponse.CaptureResponse.CaptureResult.CaptureDetails;
         const state = captureDetails.CaptureStatus.State;
         const captureId = captureDetails.AmazonCaptureId;
-        res.json({
+        const response = {
             remoteConnectionStatus: "Success",
             responseCode : "OK",
             "isDeclined":  state != "Completed",
@@ -36,7 +36,9 @@ router.post('/', async (req, res, next) => {
             "responseData" : [
                 { "key" : "captureId", "value" : captureId }
             ]
-        });
+        };
+        logger.info(JSON.stringify(response));
+        res.json(response);
     } catch(err) {
         helper.errorHandler(res, err);
     }

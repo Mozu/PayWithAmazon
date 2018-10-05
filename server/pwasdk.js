@@ -1,12 +1,13 @@
-const crypto 		= require("crypto");
-const moment 		= require("moment");
-const _ 			= require("underscore");
-const request   	= require("request-promise");
-const parser 		= require('xml2json');
-const mwsServiceUrls = { "eu" : "mws-eu.amazonservices.com", "na" : "mws.amazonservices.com", "jp" : "mws.amazonservices.jp"  };
-const profileEndpointUrls = { "uk" : "amazon.co.uk", "us" : "amazon.com", "de" : "amazon.de", "jp" : "amazon.co.jp" };
-const regionMappings = {"de" : "eu", "uk" : "eu", "us" : "na", "jp" : "jp"};
-const version = "2013-01-01";
+const crypto 				= require("crypto");
+const moment 				= require("moment");
+const _ 					= require("underscore");
+const request   			= require("request-promise");
+const parser 				= require('xml2json');
+const mwsServiceUrls 		= { "eu" : "mws-eu.amazonservices.com", "na" : "mws.amazonservices.com", "jp" : "mws.amazonservices.jp"  };
+const profileEndpointUrls	= { "uk" : "amazon.co.uk", "us" : "amazon.com", "de" : "amazon.de", "jp" : "amazon.co.jp" };
+const regionMappings 		= {"de" : "eu", "uk" : "eu", "us" : "na", "jp" : "jp"};
+const version 				= "2013-01-01";
+const logger            	= require('./logger');
 
 const getBaseParams = (action, config) => {
 	if (!config.mwsAccessKeyId || !config.mwsSecret)
@@ -77,13 +78,13 @@ const executeRequest = async (action, params, config) => {
 
     params = sortParams(params);
 
-	console.log("params", params);
+	logger.info("params", params);
     //const profileEnvt = config.isSandbox ? "api.sandbox" : "api";
     const path = (config.isSandbox ? '/OffAmazonPayments_Sandbox' : '/OffAmazonPayments')+"/"+version;
     const server = mwsServiceUrls[regionMappings[config.awsRegion]];
 
-    console.log("path", path);
-    console.log("server", server);
+    logger.info("path", path);
+    logger.info("server", server);
 
 
     //sign the request
@@ -99,7 +100,7 @@ const executeRequest = async (action, params, config) => {
     params.Signature = encodeURIComponent(signature);
 
 	const url = "https://"+server+path;
-	console.log("Post url", url);
+	logger.info("Post url", url);
 	try {
 		const requestBody = buildParamString(params,false);
 		let proxy = null;
@@ -139,14 +140,14 @@ const setOrderDetails = async (orderReferenceId, orderDetails, config) => {
 	if (orderDetails.webSitenName);
 		params['OrderReferenceAttributes.SellerOrderAttributes.StoreName']=orderDetails.websiteName;
 
-	console.log("Setting AWS order orderDetails", params);
+	logger.info("Setting AWS order orderDetails", params);
 	return await executeRequest("SetOrderReferenceDetails", params, config);
 };
 
 const confirmOrder = async (orderReferenceId, config) => {
 	let params = {};
 	params.AmazonOrderReferenceId = orderReferenceId;
-	console.log("Confirming AWS Order", params);
+	logger.info("Confirming AWS Order", params);
 	return executeRequest("ConfirmOrderReference", params, config);
 };
 
@@ -164,7 +165,7 @@ const requestAuthorzation = async (orderReferenceId, amount, currencyCode, autho
 	//if (declineAuth)
 	//	params.SellerAuthorizationNote = '{"SandboxSimulation": {"State":"Declined", "ReasonCode":"InvalidPaymentMethod", "PaymentMethodUpdateTimeInMins":5}}';
 
-	console.log("Requesting AWS Authorization", params);
+	logger.info("Requesting AWS Authorization", params);
 	return await executeRequest("Authorize", params, config);
 };
 
@@ -177,7 +178,7 @@ const capture = async (amazonAuthorizationId, captureAmount, currencyCode,captur
 	params.TransactionTimeout = 0;
 
 
-	console.log("Requesting AWS Capture", params);
+	logger.info("Requesting AWS Capture", params);
 	return await executeRequest("Capture", params, config);
 };
 
@@ -200,14 +201,14 @@ const refund = async (captureId, refund, config )  => {
 	params['RefundAmount.CurrencyCode'] = refund.currencyCode;
 	params.RefundReferenceId = refund.id;
 	params['OrderReferenceAttributes.SellerOrderAttributes.SellerOrderId'] = refund.orderNumber;
-	console.log("AWS refund params", params);
+	logger.info("AWS refund params", params);
 	return executeRequest("Refund", params,config);
 };
 
 const closeAuthorization = async(authorizationId, config) => {
 	let params = {};
 	params.AmazonAuthorizationId = authorizationId;
-	console.log("AWS CloseAuthorization params", params);
+	logger.info("AWS CloseAuthorization params", params);
 	return executeRequest("CloseAuthorization", params,config);
 }
 
@@ -220,12 +221,12 @@ const getProfile = async (access_token, config) => {
 
 	try {
 		const url = "https://"+(config.isSandbox ? "api.sandbox" : "api")+"."+profileEndpointUrls[config.awsRegion]+"/user/profile";
-		console.log('Profile Url', url);
-		console.log("access_token", access_token);
+		logger.info('Profile Url', url);
+		logger.info("access_token", access_token);
 		let proxy = null;
 		if (process.env.proxy)
 			proxy =  "proxy: \""+process.env.proxy.trim()+"\"";
-		console.log(proxy);
+		logger.info(proxy);
 		const result = await request({ headers: {'Authorization' : 'bearer '+access_token},uri: url, method: 'GET', proxy});
 
 		return JSON.parse(result);

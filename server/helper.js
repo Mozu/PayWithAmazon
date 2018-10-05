@@ -1,6 +1,6 @@
 const _     = require("underscore");
 const Guid  = require("guid");
-
+const logger = require('./logger');
 
 module.exports.getValue = (keyValuePairs, key) => {
     var value = _.findWhere(keyValuePairs, {"key" : key});
@@ -11,6 +11,18 @@ module.exports.getValue = (keyValuePairs, key) => {
     }
     //console.log("Key: "+key, value.value );
     return value.value;
+}
+
+module.exports.getInteractionById = (interactions, gatewayInteractionid,transactionType) => {
+  console.log(interactions);
+  var interaction = _.findWhere(interactions, {"id": gatewayInteractionid});
+
+  if (!interaction || interaction.transactionType !== transactionType) {
+    console.log("Transcation type "+transactionType+" not found");
+    return;
+  }
+
+  return interaction;
 }
 
 module.exports.getInteractionByStatus = (interactions, transactionType) => {
@@ -31,7 +43,7 @@ module.exports.getGuid = 	() => {
 }
 
 module.exports.errorHandler = (res, err, addRawError) => {
-    console.log(err);
+    logger.error(err);
     let errorResponse = {
         remoteConnectionStatus: err.remoteConnectionStatus,
         "isDeclined": true
@@ -44,6 +56,6 @@ module.exports.errorHandler = (res, err, addRawError) => {
       errorResponse.responseCode = "Error";
       errorResponse.response = {error : err};
     }
-
+    logger.error(JSON.stringify(errorResponse));
     res.json(errorResponse);
 }
