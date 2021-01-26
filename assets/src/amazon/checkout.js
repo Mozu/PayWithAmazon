@@ -164,18 +164,22 @@ module.exports = function(context, callback) {
   self.validateAndProcess = function() {
       var params = helper.parseUrlParams(self.ctx);
 
-      if (!helper.isAmazonCheckout(self.ctx) || (!helper.isCartPage(self.ctx)  && params.view == "amazon-checkout"))  self.cb();
-      console.log(self.ctx.apiContext);
+      if (!helper.isAmazonCheckout(self.ctx) || (!helper.isCartPage(self.ctx)  && params.view == "amazon-checkout")) {
+        console.log('not amazon checkout or is requesting amazon-checkout view, ending request.');
+        return self.cb();
+      }
+      console.log('ApiContext',self.ctx.apiContext);
       var isMultishipEnabled = false;
 
-      return paymentHelper.getPaymentConfig(self.ctx).
-      then(function(config) {
+      //* Only for requests from cart page. Requests from checkout page are terminated above.    
+      return paymentHelper.getPaymentConfig(self.ctx)
+      .then(function(config) {        
         if (!config.isEnabled) return self.cb();
         amazonPay.configure(config);
         return amazonPay.validateToken(params.access_token);
-      }).then(function(isTokenValid) {
+      })
+      .then(function(isTokenValid) {
         console.log("Is Amazon token valid", isTokenValid);
-
         var cartId = params.cartId;
         if (isTokenValid && cartId) {
 
@@ -196,9 +200,11 @@ module.exports = function(context, callback) {
         } else if (!isTokenValid) {
           console.log("Amazon token and expried, redirecting to cart");
           self.ctx.response.redirect('/cart');
-          return self.ctx.response.end();
+          return self.ctx.response.end();          
         }
-      }).then(function(order) {
+        return self.cb();           
+      })
+      .then(function(order) {
         console.log("Order created from cart", order.id);
         delete params.cartId;
         var queryString = "";
@@ -210,14 +216,16 @@ module.exports = function(context, callback) {
 
         if (isMultishipEnabled)
           self.ctx.response.redirect('/checkoutV2/'+order.id+"?"+queryString);
-        else
+        else{
+          console.log("Redirecting to checkout:", order.id);
           self.ctx.response.redirect('/checkout/'+order.id+"?"+queryString);
-
+        }
         self.ctx.response.end();
-      }).catch(function(e){
+      })
+      .catch(function(e){       
         console.error(e);
         context.cache.request.set("amazonError",e);
-        self.cb();
+        return self.cb();
       });//.then(self.cb, self.cb);
   };
 
@@ -240,17 +248,17 @@ module.exports = function(context, callback) {
           self.ctx.response.redirect('/cart');
           self.ctx.response.end();
         } else if (_.has(params, "view")) {
-          console.log("Changing view name to amazonpay");
+          console.log("Changing view name to amazon-checkout");
           self.ctx.response.viewName = params.view;
+          console.log("context response viewName",self.ctx.response.viewName);
         }
         else
           self.ctx.response.viewData.awsCheckout = true;
-        self.cb();
+        return self.cb();
       }).catch(function(err) {
         console.error(err);
-        self.cb(err);
-      });
-
+        return self.cb(err);
+      });      
   };
 
 
@@ -486,11 +494,13 @@ module.exports = function(context, callback) {
           }
       }).then(function(paymentResult) {
         console.log(paymentResult);
-        paymentHelper.processPaymentResult(self.ctx,paymentResult, paymentAction);
+        paymentHelper.processPaymentResult(self.ctx,paymentResult, paymentAction, payment);
         self.cb();
       }).catch(function(err){
         console.error(err);
-        self.ctx.exec.addPaymentInteraction({ status: paymentConstants.FAILED, gatewayResponseText: err});
+        var errorInteraction={ status: paymentConstants.FAILED, gatewayResponseText: err};
+        payment.interactions.push(errorInteraction);
+        self.ctx.exec.addPaymentInteraction(errorInteraction);
         self.cb(err);
       }).catch(function(err) {
         console.error(err);

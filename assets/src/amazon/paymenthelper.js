@@ -10,11 +10,12 @@ var paymentHelper = module.exports = {
 
 	getPaymentConfig: function(context) {
 		var self = this;
+		var fqn =helper.getPaymentFQN(context);		
 		return helper.createClientFromContext(PaymentSettings, context, true)
-		.getThirdPartyPaymentWorkflowWithValues({fullyQualifiedName: helper.getPaymentFQN(context)})
-      	.then(function(paymentSettings) {
-      		return self.getConfig(context, paymentSettings);
-    	});
+		.getThirdPartyPaymentWorkflowWithValues({fullyQualifiedName: fqn})
+      	.then(function(paymentSettings) {			
+			return self.getConfig(context, paymentSettings);
+		});		
 	},
 	getConfig: function(context, paymentSettings) {
 
@@ -38,14 +39,13 @@ var paymentHelper = module.exports = {
                         "isEnabled": paymentSettings.isEnabled,
                         "billingType" : helper.getValue(paymentSettings, paymentConstants.BILLINGADDRESS)
                     };
-
-    	return config;
+    	return Promise.resolve(config);
 	},
 	validatePaymentSettings: function(context, callback) {
 		var self = this;
 		var paymentSettings = context.request.body;
 
-		var pwaSettings = _.findWhere(paymentSettings.ExternalPaymentWorkflowDefinitions, {FullyQualifiedName : helper.getPaymentFQN(context)});
+		var pwaSettings = _.findWhere(paymentSettings.externalPaymentWorkflowDefinitions, {fullyQualifiedName : helper.getPaymentFQN(context)});
 
   		if (!pwaSettings || !pwaSettings.IsEnabled) callback();
 
@@ -123,12 +123,13 @@ var paymentHelper = module.exports = {
 
 	    interaction.isManual = isManual;
 	    console.log("Payment Action result", interaction);
-
+		  payment.interactions.push(interaction);
 	    context.exec.addPaymentInteraction(interaction);
 
 	    if (paymentResult.captureOnAuthorize) {
 	      interaction.gatewayTransactionId = paymentResult.captureId;
-	      interaction.status = paymentConstants.CAPTURED;
+		  interaction.status = paymentConstants.CAPTURED;
+		  payment.interactions.push(interaction);
 	      context.exec.addPaymentInteraction(interaction);
 	    }
 
@@ -360,15 +361,18 @@ var paymentHelper = module.exports = {
 	  //var promise = new Promise(function(resolve, reject) {
 	    if (paymentAction.manualGatewayInteraction) {
 	          console.log("Manual void...dont send to amazon");
-	          return {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.VOIDED,
-	                  awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId};
+	          var response = {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.VOIDED,
+					  awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId};
+			  Promise.resolve(response);
 	    }
 
 
 	    var capturedInteraction = self.getInteractionByStatus(payment.interactions,paymentConstants.CAPTURED);
 	    console.log("Void Payment - Captured interaction", capturedInteraction);
 	    if (capturedInteraction) {
-	      return {status : paymentConstants.FAILED, responseCode: "InvalidRequest", responseText: "Payment with captures cannot be voided. Please issue a refund"};
+			var errorResponse =
+		   {status : paymentConstants.FAILED, responseCode: "InvalidRequest", responseText: "Payment with captures cannot be voided. Please issue a refund"};
+		   Promise.resolve(errorResponse);
 	    }
 
 	    var authorizedInteraction = self.getInteractionByStatus(payment.interactions,paymentConstants.AUTHORIZED);
@@ -393,14 +397,16 @@ var paymentHelper = module.exports = {
 	declinePayment: function (context, config, paymentAction, payment) {
 		var self = this;
 	    if (paymentAction.manualGatewayInteraction) {
-	          console.log("Manual decline...dont send to amazon");
-	          return {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.DECLINED,
-	                  awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId};
+			  console.log("Manual decline...dont send to amazon");
+			  var response = {amount: paymentAction.amount,gatewayResponseCode:  "OK", status: paymentConstants.DECLINED,
+					  awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId};
+			  Promise.resolve(response);
 	    }
 	    var capturedInteraction = getInteractionByStatus(payment.interactions, paymentConstants.CAPTURED);
 	    if (capturedInteraction) {
-	      console.log("Capture found for payment, cannot decline");
-	      return {status: paymentConstants.FAILED, responseCode: "InvalidRequest", responseText: "Payment with captures cannot be declined"};
+		  console.log("Capture found for payment, cannot decline");
+		  var errorResponse = {status: paymentConstants.FAILED, responseCode: "InvalidRequest", responseText: "Payment with captures cannot be declined"};
+		   Promise.resolve(errorResponse);
 	    }
 
 		amazonPay.configure(config);

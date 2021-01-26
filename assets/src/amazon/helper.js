@@ -19,7 +19,7 @@ var helper = module.exports = {
 	},
 	validateUserSession : function(context) {
 		var user = context.items.pageContext.user;
-		if ( !user.isAnonymous && !user.IsAuthenticated )
+		if ( !user.isAnonymous && !user.isAuthenticated )
 		{
       console.log(context.configuration);
       var allowWarmCheckout = (context.configuration && context.configuration.allowWarmCheckout);
@@ -34,7 +34,7 @@ var helper = module.exports = {
     if (!context.items || !context.items.pageContext || !context.items.pageContext.user) return null;
     var user = context.items.pageContext.user;
     console.log("user", user);
-    if ( !user.isAnonymous && user.IsAuthenticated ) {
+    if ( !user.isAnonymous && user.isAuthenticated ) {
       console.log(user);
       return user.email;
     }
@@ -85,7 +85,7 @@ var helper = module.exports = {
 	  var guid = Guid.create();
 	  return guid.value.replace(/\-/g, "");
 	},
-	getValue: function(paymentSetting, key) {
+	getValue: function(paymentSetting, key) {		
 	  var value = _.findWhere(paymentSetting.credentials, {"apiName" : key}) || _.findWhere(paymentSetting.Credentials, {"APIName" : key});
 
 	    if (!value) {

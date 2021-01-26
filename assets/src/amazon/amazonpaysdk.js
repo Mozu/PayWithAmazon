@@ -112,6 +112,7 @@ module.exports = function() {
 
 
 	self.validateToken = function(access_token) {
+		console.log("ValidatingToken");
 		var promise = new Promise(function(resolve, reject){
 			self.getProfile(access_token).then(function(data) {
 					resolve(true);
