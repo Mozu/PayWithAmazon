@@ -36,12 +36,11 @@
 
 var AmazonCheckout = require("../../amazon/checkout");
 
-module.exports = function(context, callback) {
+module.exports = function (context, callback) {
   try {
     var amazonCheckout = new AmazonCheckout(context, callback);
     amazonCheckout.processPayment();
-  } catch(e) {
+  } catch (e) {
     callback(e);
   }
-
 };

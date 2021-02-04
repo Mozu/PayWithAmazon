@@ -21,14 +21,14 @@
 
  */
 
- var AmazonCheckout = require("../../amazon/checkout");
+var AmazonCheckout = require("../../amazon/checkout");
 
-
-module.exports = function(context, callback) {
-	var amazonCheckout = new AmazonCheckout(context, callback);
-    amazonCheckout.validateAndProcess()
+module.exports = function (context, callback) {
+  var amazonCheckout = new AmazonCheckout(context, callback);
+  amazonCheckout
+    .validateAndProcess()
     .then(callback)
-    .catch(function(e){
-      amazonCheckout.setError(e);      
+    .catch(function (e) {
+      amazonCheckout.setError(e);
     });
 };

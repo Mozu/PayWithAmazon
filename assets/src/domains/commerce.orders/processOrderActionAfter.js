@@ -137,15 +137,14 @@
 
  */
 
- var AmazonCheckout = require("../../amazon/checkout");
+var AmazonCheckout = require("../../amazon/checkout");
 
-
-module.exports = function(context, callback) {
+module.exports = function (context, callback) {
   console.log("Order action", context);
-  try{
+  try {
     var amazonCheckout = new AmazonCheckout(context, callback);
     amazonCheckout.closeOrder();
-  } catch(e) {
+  } catch (e) {
     callback(e);
-  } 
+  }
 };

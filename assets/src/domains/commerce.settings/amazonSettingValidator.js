@@ -20,8 +20,8 @@
  * data out of them the way that you would in Node.
 
  */
-var helper = require('../../amazon/paymenthelper');
+var helper = require("../../amazon/paymenthelper");
 
-module.exports = function(context, callback) {
+module.exports = function (context, callback) {
   helper.validatePaymentSettings(context, callback);
 };

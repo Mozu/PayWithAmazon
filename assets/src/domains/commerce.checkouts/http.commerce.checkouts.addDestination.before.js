@@ -8,20 +8,16 @@
 
  */
 
-
 //var AmazonCheckout = require("../../amazoncheckout");
-
 
 var AmazonCheckout = require("../../amazon/checkout");
 
-module.exports = function(context, callback) {
-
-	try {	
-		//console.log(context.request.params);
-		var amazonCheckout = new AmazonCheckout(context, callback);
-	    amazonCheckout.addDestination();
-    } catch(e) {
-	   callback(e);
-	}
-  
+module.exports = function (context, callback) {
+  try {
+    //console.log(context.request.params);
+    var amazonCheckout = new AmazonCheckout(context, callback);
+    amazonCheckout.addDestination();
+  } catch (e) {
+    callback(e);
+  }
 };

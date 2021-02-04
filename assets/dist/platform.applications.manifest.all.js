@@ -1,157 +1,162 @@
 (function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.index = f()}})(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 module.exports = {
-	PAYMENTSETTINGID : "PayWithAmazon",
-	ENVIRONMENT: "environment",
-	SELLERID: "sellerId",
-	CLIENTID: "clientId",
-	AUTHTOKEN: "authToken",
-	APPID: "appId",
-	AWSACCESSKEYID: "awsAccessKeyId",
-	AWSSECRET: "awsSecret",
-	REGION: "region",
-	ORDERPROCESSING: "orderProcessing",
-	ACCESSTOKEN: "access_token",
-	BUTTONCOLOR: "buttonColor",
-	BUTTONTYPE: "buttonType",
-	POPUP: "usepopup",
-	CAPTUREONSUBMIT: "AuthAndCaptureOnOrderPlacement",
-	CAPTUREONSHIPMENT: "AuthOnOrderPlacementAndCaptureOnOrderShipment",
-	FAILED: "Failed",
-	NEW: "New",
-	DECLINED: "Declined",
-	AUTHORIZED: "Authorized",
-	CAPTURED: "Captured",
-	CREDITED: "Credited",
-	CREDITPENDING: "CreditPending",
-	VOIDED: "Voided",
-  BILLINGADDRESS: "billingAddressOption"
-
+  PAYMENTSETTINGID: "PayWithAmazon",
+  ENVIRONMENT: "environment",
+  SELLERID: "sellerId",
+  CLIENTID: "clientId",
+  AUTHTOKEN: "authToken",
+  APPID: "appId",
+  AWSACCESSKEYID: "awsAccessKeyId",
+  AWSSECRET: "awsSecret",
+  REGION: "region",
+  ORDERPROCESSING: "orderProcessing",
+  ACCESSTOKEN: "access_token",
+  BUTTONCOLOR: "buttonColor",
+  BUTTONTYPE: "buttonType",
+  POPUP: "usepopup",
+  CAPTUREONSUBMIT: "AuthAndCaptureOnOrderPlacement",
+  CAPTUREONSHIPMENT: "AuthOnOrderPlacementAndCaptureOnOrderShipment",
+  FAILED: "Failed",
+  NEW: "New",
+  DECLINED: "Declined",
+  AUTHORIZED: "Authorized",
+  CAPTURED: "Captured",
+  CREDITED: "Credited",
+  CREDITPENDING: "CreditPending",
+  VOIDED: "Voided",
+  BILLINGADDRESS: "billingAddressOption",
 };
 
 },{}],2:[function(require,module,exports){
-
-var getAppInfo = require('mozu-action-helpers/get-app-info');
+var getAppInfo = require("mozu-action-helpers/get-app-info");
 var url = require("url");
 var qs = require("querystring");
 var _ = require("underscore");
 var constants = require("mozu-node-sdk/constants");
 var paymentConstants = require("./constants");
-var GeneralSettings = require('mozu-node-sdk/clients/commerce/settings/generalSettings');
+var GeneralSettings = require("mozu-node-sdk/clients/commerce/settings/generalSettings");
 var Order = require("mozu-node-sdk/clients/commerce/order");
-var Guid = require('guid');
+var Guid = require("guid");
 
-
-var helper = module.exports = {
-	createClientFromContext: function (client, context, removeClaims) {
-	  var c = client(context);
-	  if (removeClaims)
-		  c.context[constants.headers.USERCLAIMS] = null;
-	  return c;
-	},
-	validateUserSession : function(context) {
-		var user = context.items.pageContext.user;
-		if ( !user.isAnonymous && !user.isAuthenticated )
-		{
+var helper = (module.exports = {
+  createClientFromContext: function (client, context, removeClaims) {
+    var c = client(context);
+    if (removeClaims) c.context[constants.headers.USERCLAIMS] = null;
+    return c;
+  },
+  validateUserSession: function (context) {
+    var user = context.items.pageContext.user;
+    if (!user.isAnonymous && !user.isAuthenticated) {
       console.log(context.configuration);
-      var allowWarmCheckout = (context.configuration && context.configuration.allowWarmCheckout);
-      var redirectUrl = '/user/login?returnUrl=' + encodeURIComponent(context.request.url);
+      var allowWarmCheckout =
+        context.configuration && context.configuration.allowWarmCheckout;
+      var redirectUrl =
+        "/user/login?returnUrl=" + encodeURIComponent(context.request.url);
       if (!allowWarmCheckout)
-        redirectUrl = '/logout?returnUrl=' + encodeURIComponent(context.request.url)+"&saveUserId=true";
-			context.response.redirect(redirectUrl);
-			return context.response.end();
-		}
-	},
-  getUserEmail : function(context) {
-    if (!context.items || !context.items.pageContext || !context.items.pageContext.user) return null;
+        redirectUrl =
+          "/logout?returnUrl=" +
+          encodeURIComponent(context.request.url) +
+          "&saveUserId=true";
+      context.response.redirect(redirectUrl);
+      return context.response.end();
+    }
+  },
+  getUserEmail: function (context) {
+    if (
+      !context.items ||
+      !context.items.pageContext ||
+      !context.items.pageContext.user
+    )
+      return null;
     var user = context.items.pageContext.user;
     console.log("user", user);
-    if ( !user.isAnonymous && user.isAuthenticated ) {
+    if (!user.isAnonymous && user.isAuthenticated) {
       console.log(user);
       return user.email;
     }
     return null;
   },
-	getPaymentFQN: function(context) {
-		var appInfo = getAppInfo(context);
-		console.log("App Info", appInfo);
-		return appInfo.namespace+"~"+paymentConstants.PAYMENTSETTINGID;
-	},
-	isAmazonCheckout: function (context) {
-	  var params = this.parseUrlParams(context);
-	  var hasAmzParams = _.has(params, 'access_token') && _.has(params, "isAwsCheckout");
-	  console.log("is Amazon checkout?", hasAmzParams);
-	  return hasAmzParams;
-	},
-	parseUrlParams: function(context) {
-		var request = context.request;
-		var urlParseResult = url.parse(request.url);
-		console.log("parsedUrl", urlParseResult);
-		queryStringParams = qs.parse(urlParseResult.query);
-		return queryStringParams;
-	},
-	isCartPage: function(context) {
-		return context.request.url.indexOf("/cart") > -1;
-	},
-	isCheckoutPage: function(context) {
-		return context.request.url.indexOf("/checkout") > -1;
-	},
-	getOrderDetails: function(context) {
-		var generalSettingsClient = this.createClientFromContext(GeneralSettings, context, true);
+  getPaymentFQN: function (context) {
+    var appInfo = getAppInfo(context);
+    console.log("App Info", appInfo);
+    return appInfo.namespace + "~" + paymentConstants.PAYMENTSETTINGID;
+  },
+  isAmazonCheckout: function (context) {
+    var params = this.parseUrlParams(context);
+    var hasAmzParams =
+      _.has(params, "access_token") && _.has(params, "isAwsCheckout");
+    console.log("is Amazon checkout?", hasAmzParams);
+    return hasAmzParams;
+  },
+  parseUrlParams: function (context) {
+    var request = context.request;
+    var urlParseResult = url.parse(request.url);
+    console.log("parsedUrl", urlParseResult);
+    queryStringParams = qs.parse(urlParseResult.query);
+    return queryStringParams;
+  },
+  isCartPage: function (context) {
+    return context.request.url.indexOf("/cart") > -1;
+  },
+  isCheckoutPage: function (context) {
+    return context.request.url.indexOf("/checkout") > -1;
+  },
+  getOrderDetails: function (context) {
+    var generalSettingsClient = this.createClientFromContext(
+      GeneralSettings,
+      context,
+      true
+    );
 
-	  	return generalSettingsClient.getGeneralSettings()
-	  		.then(function(settings){
-					var order = null;
-					if (context.get.isForOrder() || context.get.isForReturn())
-						order = context.get.order();
-					else
-						order = context.get.checkout();
-						
-			    //return orderClient.getOrder({orderId: orderId})
-			    //.then(function(order) {
-			      return {orderNumber: order.orderNumber || order.number, websiteName: settings.websiteName, payments: order.payments};
-			    //});
-	  		});
-	},
-	getUniqueId: function () {
-	  var guid = Guid.create();
-	  return guid.value.replace(/\-/g, "");
-	},
-	getValue: function(paymentSetting, key) {		
-	  var value = _.findWhere(paymentSetting.credentials, {"apiName" : key}) || _.findWhere(paymentSetting.Credentials, {"APIName" : key});
+    return generalSettingsClient.getGeneralSettings().then(function (settings) {
+      var order = null;
+      if (context.get.isForOrder() || context.get.isForReturn())
+        order = context.get.order();
+      else order = context.get.checkout();
 
-	    if (!value) {
-	      console.log(key+" not found");
-	      return;
-	    }
-	    //console.log("Key: "+key, value.value );
-	    return value.value || value.Value;
-	},
-	addErrorToModel: function(context, callback, err) {
-	    console.error("Adding error to viewData", err);
-	    var message = err;
-	    if (err.statusText)
-	      message = err.statusText;
-      else if (err.originalError) {
-          console.error("originalError", err.originalError);
-          if (err.originalError.items && err.originalError.items.length > 0)
-            message = err.originalError.items[0].message;
-          else
-           message = err.originalError.message;
-      }
-	    else if (err.message){
-	      message = err.message;
-	      if (message.errorMessage)
-	        message = message.errorMessage;
-	    }
-	    else if (err.errorMessage)
-	      message = err.errorMessage;
-	    context.response.viewData.model.messages =  [
-	      {"message": message}
-	    ];
-	    callback();
-	}
+      //return orderClient.getOrder({orderId: orderId})
+      //.then(function(order) {
+      return {
+        orderNumber: order.orderNumber || order.number,
+        websiteName: settings.websiteName,
+        payments: order.payments,
+      };
+      //});
+    });
+  },
+  getUniqueId: function () {
+    var guid = Guid.create();
+    return guid.value.replace(/\-/g, "");
+  },
+  getValue: function (paymentSetting, key) {
+    var value =
+      _.findWhere(paymentSetting.credentials, { apiName: key }) ||
+      _.findWhere(paymentSetting.Credentials, { APIName: key });
 
-};
+    if (!value) {
+      console.log(key + " not found");
+      return;
+    }
+    //console.log("Key: "+key, value.value );
+    return value.value || value.Value;
+  },
+  addErrorToModel: function (context, callback, err) {
+    console.error("Adding error to viewData", err);
+    var message = err;
+    if (err.statusText) message = err.statusText;
+    else if (err.originalError) {
+      console.error("originalError", err.originalError);
+      if (err.originalError.items && err.originalError.items.length > 0)
+        message = err.originalError.items[0].message;
+      else message = err.originalError.message;
+    } else if (err.message) {
+      message = err.message;
+      if (message.errorMessage) message = message.errorMessage;
+    } else if (err.errorMessage) message = err.errorMessage;
+    context.response.viewData.model.messages = [{ message: message }];
+    callback();
+  },
+});
 
 },{"./constants":1,"guid":12,"mozu-action-helpers/get-app-info":15,"mozu-node-sdk/clients/commerce/order":20,"mozu-node-sdk/clients/commerce/settings/generalSettings":22,"mozu-node-sdk/constants":25,"querystring":56,"underscore":74,"url":78}],3:[function(require,module,exports){
 /*
@@ -160,205 +165,292 @@ var helper = module.exports = {
  * upon installation into a tenant.
  */
 
-var ActionInstaller = require('mozu-action-helpers/installers/actions');
+var ActionInstaller = require("mozu-action-helpers/installers/actions");
 //var paymentSettingsClient = require("mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings")();
 var tennatClient = require("mozu-node-sdk/clients/platform/tenant")();
-var constants = require('mozu-node-sdk/constants');
+var constants = require("mozu-node-sdk/constants");
 var paymentConstants = require("../../amazon/constants");
-var helper =  require("../../amazon/helper");
+var helper = require("../../amazon/helper");
 var _ = require("underscore");
 
 function AppInstall(context, callback) {
-	var self = this;
-	self.ctx = context;
-	self.cb = callback;
+  var self = this;
+  self.ctx = context;
+  self.cb = callback;
 
-	self.initialize = function() {
-		console.log(context);
-		console.log("Getting tenant", self.ctx.apiContext.tenantId);
-		var tenant = context.get.tenant();
-		enableAmazonPaymentWorkflow(tenant);
-	};
+  self.initialize = function () {
+    console.log(context);
+    console.log("Getting tenant", self.ctx.apiContext.tenantId);
+    var tenant = context.get.tenant();
+    enableAmazonPaymentWorkflow(tenant);
+  };
 
-	function enableAmazonPaymentWorkflow(tenant) {
+  function enableAmazonPaymentWorkflow(tenant) {
+    try {
+      console.log("Installing amazon payment settings", tenant);
 
-		try {
-			console.log("Installing amazon payment settings", tenant);
+      var tasks = tenant.sites.map(function (site) {
+        return addUpdatePaymentSettings(context, site);
+      });
 
-			var tasks = tenant.sites.map(function(site) {
-											return addUpdatePaymentSettings(context, site);
-										});
+      Promise.all(tasks).then(
+        function (result) {
+          console.log("Amazon payment definition installed");
+          enableActions();
+        },
+        function (error) {
+          self.cb(error);
+        }
+      );
+    } catch (e) {
+      self.cb(e);
+    }
+  }
 
-			Promise.all(tasks).then(function(result) {
-				console.log("Amazon payment definition installed");
-				enableActions();
-			}, function(error) {
-				self.cb(error);
-			});
-		} catch(e) {
-			self.cb(e);
-		}
-	}
+  function addUpdatePaymentSettings(context, site) {
+    console.log("Adding payment settings for site", site.id);
+    var paymentSettingsClient = require("mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings")();
+    paymentSettingsClient.context[constants.headers.SITE] = site.id;
+    //GetExisting
+    var paymentDef = getPaymentDef();
+    return paymentSettingsClient
+      .getThirdPartyPaymentWorkflowWithValues({
+        fullyQualifiedName: paymentDef.namespace + "~" + paymentDef.name,
+      })
+      .then(
+        function (paymentSettings) {
+          return updateThirdPartyPaymentWorkflow(
+            paymentSettingsClient,
+            paymentSettings
+          );
+        },
+        function (err) {
+          return paymentSettingsClient.addThirdPartyPaymentWorkflow(paymentDef);
+        }
+      );
+  }
 
+  function updateThirdPartyPaymentWorkflow(
+    paymentSettingsClient,
+    existingSettings
+  ) {
+    var paymentDef = getPaymentDef(existingSettings);
+    console.log(paymentDef);
+    paymentDef.isEnabled = existingSettings.isEnabled;
+    return paymentSettingsClient
+      .deleteThirdPartyPaymentWorkflow({
+        fullyQualifiedName: paymentDef.namespace + "~" + paymentDef.name,
+      })
+      .then(function (result) {
+        return paymentSettingsClient.addThirdPartyPaymentWorkflow(paymentDef);
+      });
+  }
 
-	function addUpdatePaymentSettings(context, site) {
-		console.log("Adding payment settings for site", site.id);
-		var paymentSettingsClient = require("mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings")();
-		paymentSettingsClient.context[constants.headers.SITE] = site.id;
-		//GetExisting
-		var paymentDef = getPaymentDef();
-		return paymentSettingsClient.getThirdPartyPaymentWorkflowWithValues({fullyQualifiedName :  paymentDef.namespace+"~"+paymentDef.name })
-		.then(function(paymentSettings){
-			return updateThirdPartyPaymentWorkflow(paymentSettingsClient, paymentSettings);
-		},function(err) {
-			return paymentSettingsClient.addThirdPartyPaymentWorkflow(paymentDef);
-		});
-	}
+  function enableActions() {
+    console.log("installing code actions");
+    var installer = new ActionInstaller({ context: self.ctx.apiContext });
+    installer
+      .enableActions(self.ctx, null, {
+        "embedded.commerce.payments.action.performPaymentInteraction": function (
+          settings
+        ) {
+          settings = settings || {};
+          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
+          return settings;
+        },
+        amazonPaymentActionBefore: function (settings) {
+          settings = settings || {};
+          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
+          return settings;
+        },
+        amazonCartBefore: function (settings) {
+          settings = settings || {};
+          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
+          settings.configuration = { allowWarmCheckout: true };
+          return settings;
+        },
+        amazonCheckoutBefore: function (settings) {
+          settings = settings || {};
+          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
+          return settings;
+        },
+        amazonSetFulfillmentInfo: function (settings) {
+          settings = settings || {};
+          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
+          settings.configuration = settings.configuration || {
+            missingLastNameValue: "N/A",
+          };
+          return settings;
+        },
+        "http.commerce.checkouts.addDestination.before": function (settings) {
+          settings = settings || {};
+          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
+          settings.configuration = settings.configuration || {
+            missingLastNameValue: "N/A",
+          };
+          return settings;
+        },
+        "http.commerce.checkouts.updateDestination.before": function (
+          settings
+        ) {
+          settings = settings || {};
+          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
+          settings.configuration = settings.configuration || {
+            missingLastNameValue: "N/A",
+          };
+          return settings;
+        },
+      })
+      .then(self.cb.bind(null, null), self.cb);
+  }
 
-	function updateThirdPartyPaymentWorkflow(paymentSettingsClient, existingSettings) {
-		var paymentDef = getPaymentDef(existingSettings);
-		console.log(paymentDef);
-		paymentDef.isEnabled = existingSettings.isEnabled;
-		return paymentSettingsClient.deleteThirdPartyPaymentWorkflow({ "fullyQualifiedName" : paymentDef.namespace+"~"+paymentDef.name})
-		.then(function(result) {
-			return paymentSettingsClient.addThirdPartyPaymentWorkflow(paymentDef);
-		});
-	}
-
-
-	function enableActions() {
-		console.log("installing code actions");
-		var installer = new ActionInstaller({ context: self.ctx.apiContext });
-	 	installer.enableActions(self.ctx, null, {
-      "embedded.commerce.payments.action.performPaymentInteraction" : function(settings) {
-        settings = settings || {};
-        settings.timeoutMilliseconds =settings.timeoutMilliseconds ||  30000;
-        return settings;
-      },
-      "amazonPaymentActionBefore" : function(settings) {
-        settings = settings || {};
-        settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
-        return settings;
-      },
-      "amazonCartBefore" : function(settings) {
-        settings = settings || {};
-        settings.timeoutMilliseconds =settings.timeoutMilliseconds ||  30000;
-        settings.configuration = {"allowWarmCheckout" : true};
-        return settings;
-      },
-      "amazonCheckoutBefore" : function(settings) {
-        settings = settings || {};
-        settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
-        return settings;
-      },
-      "amazonSetFulfillmentInfo" : function(settings) {
-        settings = settings || {};
-        settings.timeoutMilliseconds = settings.timeoutMilliseconds ||  30000;
-        settings.configuration = settings.configuration || {"missingLastNameValue" : "N/A"};
-        return settings;
-	  },
-	  "http.commerce.checkouts.addDestination.before" : function(settings) {
-        settings = settings || {};
-        settings.timeoutMilliseconds = settings.timeoutMilliseconds ||  30000;
-        settings.configuration = settings.configuration || {"missingLastNameValue" : "N/A"};
-        return settings;
-	  },
-	  "http.commerce.checkouts.updateDestination.before" : function(settings) {
-        settings = settings || {};
-        settings.timeoutMilliseconds = settings.timeoutMilliseconds ||  30000;
-        settings.configuration = settings.configuration || {"missingLastNameValue" : "N/A"};
-        return settings;
-      }
-    } ).then(self.cb.bind(null, null), self.cb);
-	}
-
-	function getPaymentDef(existingSettings) {
-		return  {
-		    "name": paymentConstants.PAYMENTSETTINGID,
-		    "namespace": context.get.nameSpace(),
-		    "isEnabled": "false",
-		    "description" : "<div style='font-size:13px;font-style:italic'>Please review our <a style='color:blue;' target='mozupwahelp' href='http://mozu.github.io/IntegrationDocuments/PayWithAmazon/Mozu-PayWithAmazon-App.htm'>Help</a> documentation to configure Pay With Amazon</div>",
-		    "credentials":  [
-			    	getPaymentActionFieldDef("Environment", paymentConstants.ENVIRONMENT, "RadioButton", false,getEnvironmentVocabularyValues(), existingSettings),
-			    	getPaymentActionFieldDef("Seller Id", paymentConstants.SELLERID, "TextBox", false,null,existingSettings),
-			    	getPaymentActionFieldDef("Client Id", paymentConstants.CLIENTID, "TextBox", false,null,existingSettings),
-			    	getPaymentActionFieldDef("MWS Auth Token", paymentConstants.AUTHTOKEN, "TextBox", true,null,existingSettings),
-            getPaymentActionFieldDef("Include Billing Address from Amazon on Order?", paymentConstants.BILLINGADDRESS, "RadioButton", false,getBillingOptions(),existingSettings),
-			    	getPaymentActionFieldDef("AWS Region", paymentConstants.REGION, "RadioButton", false,getRegions(),existingSettings),
-			    	getPaymentActionFieldDef("Order Processing", paymentConstants.ORDERPROCESSING, "RadioButton", true,getOrderProcessingVocabularyValues(),existingSettings),
-			    ]
-			};
-	}
+  function getPaymentDef(existingSettings) {
+    return {
+      name: paymentConstants.PAYMENTSETTINGID,
+      namespace: context.get.nameSpace(),
+      isEnabled: "false",
+      description:
+        "<div style='font-size:13px;font-style:italic'>Please review our <a style='color:blue;' target='mozupwahelp' href='http://mozu.github.io/IntegrationDocuments/PayWithAmazon/Mozu-PayWithAmazon-App.htm'>Help</a> documentation to configure Pay With Amazon</div>",
+      credentials: [
+        getPaymentActionFieldDef(
+          "Environment",
+          paymentConstants.ENVIRONMENT,
+          "RadioButton",
+          false,
+          getEnvironmentVocabularyValues(),
+          existingSettings
+        ),
+        getPaymentActionFieldDef(
+          "Seller Id",
+          paymentConstants.SELLERID,
+          "TextBox",
+          false,
+          null,
+          existingSettings
+        ),
+        getPaymentActionFieldDef(
+          "Client Id",
+          paymentConstants.CLIENTID,
+          "TextBox",
+          false,
+          null,
+          existingSettings
+        ),
+        getPaymentActionFieldDef(
+          "MWS Auth Token",
+          paymentConstants.AUTHTOKEN,
+          "TextBox",
+          true,
+          null,
+          existingSettings
+        ),
+        getPaymentActionFieldDef(
+          "Include Billing Address from Amazon on Order?",
+          paymentConstants.BILLINGADDRESS,
+          "RadioButton",
+          false,
+          getBillingOptions(),
+          existingSettings
+        ),
+        getPaymentActionFieldDef(
+          "AWS Region",
+          paymentConstants.REGION,
+          "RadioButton",
+          false,
+          getRegions(),
+          existingSettings
+        ),
+        getPaymentActionFieldDef(
+          "Order Processing",
+          paymentConstants.ORDERPROCESSING,
+          "RadioButton",
+          true,
+          getOrderProcessingVocabularyValues(),
+          existingSettings
+        ),
+      ],
+    };
+  }
 
   function getBillingOptions() {
     return [
       getVocabularyContent("0", "No", "No"),
-      getVocabularyContent("1", "Yes", "Yes")
+      getVocabularyContent("1", "Yes", "Yes"),
     ];
   }
 
-	function getRegions() {
-		return [
-			getVocabularyContent("de", "en-US", "DE"),
-			getVocabularyContent("uk", "en-US", "UK"),
-			getVocabularyContent("us", "en-US", "US"),
-			getVocabularyContent("jp", "en-US", "JP")
-		];
-	}
+  function getRegions() {
+    return [
+      getVocabularyContent("de", "en-US", "DE"),
+      getVocabularyContent("uk", "en-US", "UK"),
+      getVocabularyContent("us", "en-US", "US"),
+      getVocabularyContent("jp", "en-US", "JP"),
+    ];
+  }
 
-	function getEnvironmentVocabularyValues() {
-		return [
-			getVocabularyContent("production", "en-US", "Production"),
-			getVocabularyContent("sandbox", "en-US", "Sandbox")
-		];
-	}
+  function getEnvironmentVocabularyValues() {
+    return [
+      getVocabularyContent("production", "en-US", "Production"),
+      getVocabularyContent("sandbox", "en-US", "Sandbox"),
+    ];
+  }
 
-	function getOrderProcessingVocabularyValues() {
-		return [
-			getVocabularyContent(paymentConstants.CAPTUREONSUBMIT, "en-US", "Authorize and Capture on Order Placement"),
-			getVocabularyContent(paymentConstants.CAPTUREONSHIPMENT, "en-US", "Authorize on Order Placement and Capture on Order Shipment")
-		];
-	}
+  function getOrderProcessingVocabularyValues() {
+    return [
+      getVocabularyContent(
+        paymentConstants.CAPTUREONSUBMIT,
+        "en-US",
+        "Authorize and Capture on Order Placement"
+      ),
+      getVocabularyContent(
+        paymentConstants.CAPTUREONSHIPMENT,
+        "en-US",
+        "Authorize on Order Placement and Capture on Order Shipment"
+      ),
+    ];
+  }
 
-	function getVocabularyContent(key, localeCode, value) {
-		return {
-			"key" : key,
-			"contents" : [{
-				"localeCode" : localeCode,
-				"value" : value
-			}]
-		};
-	}
+  function getVocabularyContent(key, localeCode, value) {
+    return {
+      key: key,
+      contents: [
+        {
+          localeCode: localeCode,
+          value: value,
+        },
+      ],
+    };
+  }
 
-	function getPaymentActionFieldDef(displayName, key, type, isSensitive, vocabularyValues, existingSettings) {
-		value = "";
-		if (existingSettings)
-			value = helper.getValue(existingSettings, key);
+  function getPaymentActionFieldDef(
+    displayName,
+    key,
+    type,
+    isSensitive,
+    vocabularyValues,
+    existingSettings
+  ) {
+    value = "";
+    if (existingSettings) value = helper.getValue(existingSettings, key);
 
-		return {
-	          "displayName": displayName,
-	          "apiName": key,
-	          "value" : value,
-	          "inputType": type,
-	          "isSensitive": isSensitive,
-	          "vocabularyValues" : vocabularyValues
-		};
-	}
-
-
+    return {
+      displayName: displayName,
+      apiName: key,
+      value: value,
+      inputType: type,
+      isSensitive: isSensitive,
+      vocabularyValues: vocabularyValues,
+    };
+  }
 }
 
-
-
-module.exports = function(context, callback) {
-
-  	try {
-  		var appInstall = new AppInstall(context, callback);
-  		appInstall.initialize();
-  	} catch(e) {
-  		callback(e);
-  	}
-
+module.exports = function (context, callback) {
+  try {
+    var appInstall = new AppInstall(context, callback);
+    appInstall.initialize();
+  } catch (e) {
+    callback(e);
+  }
 };
 
 },{"../../amazon/constants":1,"../../amazon/helper":2,"mozu-action-helpers/installers/actions":16,"mozu-node-sdk/clients/commerce/settings/checkout/paymentSettings":21,"mozu-node-sdk/clients/platform/tenant":23,"mozu-node-sdk/constants":25,"underscore":74}],4:[function(require,module,exports){
