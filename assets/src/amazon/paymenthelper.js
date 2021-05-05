@@ -156,10 +156,17 @@ var paymentHelper = (module.exports = {
     context.exec.addPaymentInteraction(interaction);
 
     if (paymentResult.captureOnAuthorize) {
-      interaction.gatewayTransactionId = paymentResult.captureId;
-      interaction.status = paymentConstants.CAPTURED;
-      payment.interactions.push(interaction);
-      context.exec.addPaymentInteraction(interaction);
+      var captureInteraction = {
+        status: paymentConstants.CAPTURED,
+        interactionType: interactionType,
+      };
+      captureInteraction.gatewayTransactionId = paymentResult.captureId;
+      captureInteraction.amount = interaction.amount;
+      captureInteraction.awsTransactionId = interaction.awsTransactionId;
+      captureInteraction.responseText = interaction.responseText;
+      captureInteraction.responseCode = interaction.responseCode;     
+      payment.interactions.push(captureInteraction);
+      context.exec.addPaymentInteraction(captureInteraction);
     }
 
     if (paymentResult.status == paymentConstants.CAPTURED)
