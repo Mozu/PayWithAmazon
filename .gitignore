@@ -1,5 +1,7 @@
 node_modules/**
-dist/**
+assets/dist/**
+.vscode/
+package-lock.json
 .yo-rc.json
 mozu.config.*
 mozu.config
