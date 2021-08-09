@@ -535,8 +535,8 @@ module.exports = function (context, callback) {
     var paymentAction = self.ctx.get.paymentAction();
     var payment = self.ctx.get.payment();
 
-    console.log("Payment Action", paymentAction);
-    console.log("Payment", payment);
+    console.log("Payment Action:", paymentAction.actionName);
+    //console.log("Payment", payment);
     console.log("apiContext", self.ctx.apiContext);
     if (payment.paymentType !== paymentConstants.PAYMENTSETTINGID)
       return self.cb();
