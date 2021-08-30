@@ -334,9 +334,13 @@ var paymentHelper = (module.exports = {
     var self = this;
     amazonPay.configure(config);
     var declineCapture = false;
-    if (context.configuration && context.configuration.payment)
+    var pendingCapture = false;
+    console.log("Configuration:",context.configuration);
+    if (context.configuration && context.configuration.payment){      
       declineCapture = context.configuration.payment.declineCapture === true;
-
+      pendingCapture = context.configuration.payment.pendingCapture === true;
+    }     
+     
     return helper
       .getOrderDetails(context)
       .then(function (orderDetails) {
@@ -366,7 +370,8 @@ var paymentHelper = (module.exports = {
 
         console.log("Authorized interaction", paymentAuthorizationInteraction);
         if (!paymentAuthorizationInteraction) {
-          console.log("interactions", interactions);
+          console.log("no authorized interaction found");
+          //console.log("interactions", interactions);
           return {
             status: paymentConstants.FAILED,
             responseText:
@@ -375,12 +380,55 @@ var paymentHelper = (module.exports = {
           };
         }
 
+        var capturedInteractionWithPendingState = _.findWhere(interactions, {status: "Failed", gatewayResponseText: "Pending"});
+        if(capturedInteractionWithPendingState){
+          console.log("Found capture interaction with pending status");
+          var amazonCaptureId = capturedInteractionWithPendingState.gatewayTransactionId;
+          return amazonPay
+          .getCaptureDetails(amazonCaptureId)
+          .then(function(captureResponse){
+            var captureDetails = captureResponse.GetCaptureDetailsResponse.GetCaptureDetailsResult.CaptureDetails;
+            //console.log("AWS Capture Details", JSON.stringify(captureDetails));
+            var state = captureDetails.CaptureStatus.State;
+            var status;
+            switch (state) {
+              case "Completed":
+                status = paymentConstants.CAPTURED;
+                break;
+              case "Declined":
+                status = paymentConstants.DECLINED;
+                break;  
+              default:
+                status = paymentConstants.FAILED;
+                break;
+            }
+            var response = {
+              status: status,
+              awsTransactionId: captureDetails.AmazonCaptureId,
+              responseText: "Capture Status: "+state,
+              responseCode: 200,
+              amount: captureDetails.CaptureAmount.Amount,
+            };
+            return response;
+          })
+          .catch(function (err) {
+              console.error("Get Capture Detials Error", err);
+              return {
+                status: paymentConstants.FAILED,
+                responseText: err.message,
+                responseCode: err.code,
+              };
+          });                    
+        }
+       
+
         return amazonPay
           .captureAmount(
             paymentAuthorizationInteraction.gatewayTransactionId,
             orderDetails,
             helper.getUniqueId(),
-            declineCapture
+            declineCapture,
+            pendingCapture
           )
           .then(
             function (captureResult) {

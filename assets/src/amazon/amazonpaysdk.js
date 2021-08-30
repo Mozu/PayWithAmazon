@@ -213,7 +213,8 @@ module.exports = function () {
     amazonAuthorizationId,
     orderDetails,
     authorizationReferenceId,
-    declineCapture
+    declineCapture,
+    pendingCapture
   ) {
     var params = {};
     params.AmazonAuthorizationId = amazonAuthorizationId;
@@ -235,11 +236,20 @@ module.exports = function () {
     if (declineCapture)
       params.SellerCaptureNote =
         '{"SandboxSimulation": {"State":"Declined", "ReasonCode":"AmazonRejected"}}';
-
+    else if(pendingCapture)
+      params.SellerCaptureNote = '{"SandboxSimulation": {"State":"Pending"}}';
+   
     console.log("Requesting AWS Capture", params);
     return executeRequest("Capture", params);
   };
 
+  self.getCaptureDetails = function (amazonCaptureId) {
+    var params = {};
+    params.AmazonCaptureId = amazonCaptureId;  
+
+    return executeRequest("GetCaptureDetails", params);
+  };
+  
   self.cancelOrder = function (orderReferenceId) {
     var params = {};
     params.AmazonOrderReferenceId = orderReferenceId;
