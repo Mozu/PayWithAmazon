@@ -75,7 +75,7 @@ module.exports = function (context, callback) {
     payment.paymentType !== paymentConstants.PAYMENTSETTINGID &&
     payment.paymentWorkflow !== paymentConstants.PAYMENTSETTINGID
   )
-    callback();
+    return callback();
 
   console.log("is For checkout", context.get.isForCheckout());
 
