@@ -1,9 +1,17 @@
 module.exports = function (grunt) {
+    var path = require('path');
     require('process').env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
     'use strict';
     grunt.loadTasks('./tasks');
     require('time-grunt')(grunt);
     require('load-grunt-tasks')(grunt);
+
+    var entries = {};
+    grunt.file.expand({cwd: 'assets/src/'}, '**/*.manifest.js').forEach(function(file) {
+        var name = file.replace(/\.js$/, '');
+        entries[name] = './assets/src/' + file;
+    });
+
     grunt.initConfig({
         mozuconfig: grunt.file.readJSON('./mozu.config.json'),
         jshint: {
@@ -13,43 +21,38 @@ module.exports = function (grunt) {
                 'src': '<%= jshint.normal %>'
             }
         },
-        browserify: {
-            'all': {
-                'files': [{
-                        'expand': true,
-                        'cwd': 'assets/src/',
-                        'src': ['**/*.manifest.js'],
-                        'dest': 'assets/dist/',
-                        'ext': '.all.js',
-                        'extDot': 'last'
-                    }],
-                'options': {
-                    'browserifyOptions': {
-                        'standalone': 'index',
-                        'commondir': false,
-                        'builtins': [
-                            'stream',
-                            'util',
-                            'path',
-                            'url',
-                            'string_decoder',
-                            'events',
-                            'net',
-                            'punycode',
-                            'querystring',
-                            'dgram',
-                            'dns',
-                            'assert',
-                            'tls',
-                            'crypto'
-                        ],
-                        'insertGlobals': false,
-                        'detectGlobals': false
+        webpack: {
+            all: {
+                entry: entries,
+                output: {
+                    path: path.resolve(__dirname, 'assets/dist'),
+                    filename: '[name].all.js',
+                    library: {
+                        type: 'commonjs'
                     }
+                },
+                target: 'node',
+                mode: 'production',
+                optimization: {
+                    minimize: false
+                },
+                resolve: {
+                    extensions: ['.js', '.json']
                 }
             }
         },
-        manifest: { 'all': { 'files': '<%= browserify.all.files %>' } },
+        manifest: { 
+            'all': { 
+                'files': [{
+                    'expand': true,
+                    'cwd': 'assets/src/',
+                    'src': ['**/*.manifest.js'],
+                    'dest': 'assets/dist/',
+                    'ext': '.all.js',
+                    'extDot': 'last'
+                }]
+            } 
+        },
         mozusync: {
             'options': {
                 'applicationKey': '<%= mozuconfig.workingApplicationKey %>',
@@ -69,7 +72,8 @@ module.exports = function (grunt) {
             'upload': {
                 'options': {
                     'action': 'upload',
-                    'noclobber': true
+                    'noclobber': false,
+                    'ignoreChecksum': true
                 },
                 'src': ['./assets/**/*'],
                 'filter': 'isFile'
@@ -91,7 +95,7 @@ module.exports = function (grunt) {
                 'files': '<%= jshint.normal %>',
                 'tasks': [
                     'jshint:continuous',
-                    'browserify:all',
+                    'webpack:all',
                     'manifest'
                 ]
             },
@@ -112,7 +116,7 @@ module.exports = function (grunt) {
     });
     grunt.registerTask('build', [
         'jshint:normal',
-        'browserify:all',
+        'webpack:all',
         'manifest',
         'test'
     ]);
