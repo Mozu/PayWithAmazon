@@ -54,7 +54,7 @@ module.exports = function(context, callback) {
     });
 
     // Get payment configuration
-    paymentHelper.getPaymentConfig(context).then(function(config) {
+    paymentHelper.getPaymentConfig(context).then(async function(config) {
       // Configure Amazon Pay v2 SDK
       amazonPayV2.configure({
         publicKeyId: config.publicKeyId,
@@ -89,7 +89,7 @@ module.exports = function(context, callback) {
 
       console.debug('generateButtonSignature payload:', payload);
       // Generate signature
-      var signature = amazonPayV2.generateButtonSignature(payload);
+      var signature = await amazonPayV2.generateButtonSignature(payload);
 
       // Return signed payload to frontend
       var response = {

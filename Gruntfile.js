@@ -15,6 +15,9 @@ module.exports = function (grunt) {
     grunt.initConfig({
         mozuconfig: grunt.file.readJSON('./mozu.config.json'),
         jshint: {
+            options: {
+                esversion: 9
+            },
             'normal': ['./assets/src/**/*.js'],
             'continuous': {
                 'options': { 'force': true },

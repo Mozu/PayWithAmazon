@@ -6,10 +6,7 @@
 /* jshint node: true */
 /* jshint -W097 */
 
-require('../polyfills');
 var Client = require('@amazonpay/amazon-pay-api-sdk-nodejs');
-var fs = require('fs');
-var _ = require('underscore');
 
 module.exports = function() {
   'use strict';
@@ -69,12 +66,14 @@ module.exports = function() {
    * @param {Object} payload - Checkout session payload
    * @returns {string} Signature
    */
-  self.generateButtonSignature = function(payload) {
+  self.generateButtonSignature = async function(payload) {
     if (!self.client) {
       throw new Error('Amazon Pay client not configured');
     }
     console.debug("Generating button signature with payload:", payload);
-    return self.client.generateButtonSignature(payload);
+    // generateButtonSignature returns the signature string directly, not a response object
+    var signature = await self.client.generateButtonSignature(payload);
+    return signature;
   };
 
   /**
@@ -82,14 +81,13 @@ module.exports = function() {
    * @param {string} checkoutSessionId - Checkout session ID
    * @returns {Promise} Checkout session details
    */
-  self.getCheckoutSession = function(checkoutSessionId) {
+  self.getCheckoutSession = async function(checkoutSessionId) {
     console.debug("Fetching checkout session details for ID:", checkoutSessionId);
     if (!self.client) {
       throw new Error('Amazon Pay client not configured');
     }
-    return self.client.getCheckoutSession(checkoutSessionId).then(function(response) {
-        return response.data;
-    });
+    var response = await self.client.getCheckoutSession(checkoutSessionId);
+    return response.data;
   };
 
   /**
@@ -98,13 +96,12 @@ module.exports = function() {
    * @param {Object} payload - Update payload
    * @returns {Promise} Updated checkout session
    */
-  self.updateCheckoutSession = function(checkoutSessionId, payload) {
+  self.updateCheckoutSession = async function(checkoutSessionId, payload) {
     if (!self.client) {
       throw new Error('Amazon Pay client not configured');
     }
-    return self.client.updateCheckoutSession(checkoutSessionId, payload).then(function(response) {
-        return response.data;
-    });
+    var response = await self.client.updateCheckoutSession(checkoutSessionId, payload);
+    return response.data;
   };
 
   /**
@@ -113,13 +110,12 @@ module.exports = function() {
    * @param {Object} payload - Completion payload with chargeAmount
    * @returns {Promise} Completed checkout session
    */
-  self.completeCheckoutSession = function(checkoutSessionId, payload) {
+  self.completeCheckoutSession = async function(checkoutSessionId, payload) {
     if (!self.client) {
       throw new Error('Amazon Pay client not configured');
     }
-    return self.client.completeCheckoutSession(checkoutSessionId, payload).then(function(response) {
-        return response.data;
-    });
+    var response = await self.client.completeCheckoutSession(checkoutSessionId, payload);
+    return response.data;
   };
 
   /**
@@ -127,13 +123,12 @@ module.exports = function() {
    * @param {Object} payload - Charge payload
    * @returns {Promise} Charge result
    */
-  self.createCharge = function(payload) {
+  self.createCharge = async function(payload) {
     if (!self.client) {
       throw new Error('Amazon Pay client not configured');
     }
-    return self.client.createCharge(payload).then(function(response) {
-        return response.data;
-    });
+    var response = await self.client.createCharge(payload);
+    return response.data;
   };
 
   /**
@@ -141,13 +136,12 @@ module.exports = function() {
    * @param {string} chargeId - Charge ID
    * @returns {Promise} Charge details
    */
-  self.getCharge = function(chargeId) {
+  self.getCharge = async function(chargeId) {
     if (!self.client) {
       throw new Error('Amazon Pay client not configured');
     }
-    return self.client.getCharge(chargeId).then(function(response) {
-        return response.data;
-    });
+    var response = await self.client.getCharge(chargeId);
+    return response.data;
   };
 
   /**
@@ -156,13 +150,12 @@ module.exports = function() {
    * @param {Object} payload - Capture payload with captureAmount
    * @returns {Promise} Capture result
    */
-  self.captureCharge = function(chargeId, payload) {
+  self.captureCharge = async function(chargeId, payload) {
     if (!self.client) {
       throw new Error('Amazon Pay client not configured');
     }
-    return self.client.captureCharge(chargeId, payload).then(function(response) {
-        return response.data;
-    });
+    var response = await self.client.captureCharge(chargeId, payload);
+    return response.data;
   };
 
   /**
@@ -171,13 +164,12 @@ module.exports = function() {
    * @param {Object} payload - Cancellation reason
    * @returns {Promise} Cancellation result
    */
-  self.cancelCharge = function(chargeId, payload) {
+  self.cancelCharge = async function(chargeId, payload) {
     if (!self.client) {
       throw new Error('Amazon Pay client not configured');
     }
-    return self.client.cancelCharge(chargeId, payload).then(function(response) {
-        return response.data;
-    });
+    var response = await self.client.cancelCharge(chargeId, payload);
+    return response.data;
   };
 
   /**
@@ -185,13 +177,12 @@ module.exports = function() {
    * @param {Object} payload - Refund payload
    * @returns {Promise} Refund result
    */
-  self.createRefund = function(payload) {
+  self.createRefund = async function(payload) {
     if (!self.client) {
       throw new Error('Amazon Pay client not configured');
     }
-    return self.client.createRefund(payload).then(function(response) {
-        return response.data;
-    });
+    var response = await self.client.createRefund(payload);
+    return response.data;
   };
 
   /**
@@ -199,13 +190,12 @@ module.exports = function() {
    * @param {string} refundId - Refund ID
    * @returns {Promise} Refund details
    */
-  self.getRefund = function(refundId) {
+  self.getRefund = async function(refundId) {
     if (!self.client) {
       throw new Error('Amazon Pay client not configured');
     }
-    return self.client.getRefund(refundId).then(function(response) {
-        return response.data;
-    });
+    var response = await self.client.getRefund(refundId);
+    return response.data;
   };
 
   return self;
