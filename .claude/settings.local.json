@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:developer.amazon.com)",
+      "Bash(grunt build)",
+      "Bash(npm install)",
+      "Bash(node test_signature.js:*)",
+      "Bash(node:*)",
+      "Bash(grunt webpack:all:*)",
+      "Bash(del test_signature.js)",
+      "Bash(ls:*)"
+    ]
+  }
+}

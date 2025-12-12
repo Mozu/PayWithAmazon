@@ -2,8 +2,8 @@
 // Polyfill for TextEncoder if it doesn't exist
 if (typeof TextEncoder === 'undefined') {
     console.log('Polyfilling TextEncoder');
-    var TextEncoder = function TextEncoder() {};
-    TextEncoder.prototype.encode = function encode(str) {
+    var TextEncoderPolyfill = function TextEncoder() {};
+    TextEncoderPolyfill.prototype.encode = function encode(str) {
         var length = str.length;
         var res = [];
         for (var i = 0; i < length; i++) {
@@ -40,12 +40,12 @@ if (typeof TextEncoder === 'undefined') {
     
     // Export to global scope
     if (typeof global !== 'undefined') {
-        global.TextEncoder = TextEncoder;
+        global.TextEncoder = TextEncoderPolyfill;
     } else if (typeof window !== 'undefined') {
-        window.TextEncoder = TextEncoder;
+        window.TextEncoder = TextEncoderPolyfill;
     } else if (typeof self !== 'undefined') {
-        self.TextEncoder = TextEncoder;
+        self.TextEncoder = TextEncoderPolyfill;
     } else {
-        this.TextEncoder = TextEncoder;
+        this.TextEncoder = TextEncoderPolyfill;
     }
 }

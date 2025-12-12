@@ -19,8 +19,9 @@ var regionMappings = { de: "eu", uk: "eu", us: "na", jp: "jp" };
 var version = "2013-01-01";
 
 var getBaseParams = function (action, config) {
+  console.error("v1: Getting base params for action", action);
   if (!config.mwsAccessKeyId || !config.mwsSecret)
-    throw new Error("AWS Access KeyId or Secret not found");
+    throw new Error("AWS Access KeyId or Secret not found for action", action);
   return {
     AWSAccessKeyId: config.mwsAccessKeyId,
     Action: action,

@@ -1,6 +1,6 @@
 {
   "node": true,
-  "esnext": true,
+  "esversion": 9,
   "bitwise": true,
   "camelcase": true,
   "curly": true,
@@ -13,5 +13,8 @@
   "quotmark": "single",
   "undef": true,
   "unused": true,
-  "strict": true
+  "strict": true,
+  "asi": true,
+  "-W033": true,
+  "-W018": true
 }

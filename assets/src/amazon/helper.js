@@ -5,7 +5,6 @@ var _ = require("underscore");
 var constants = require("mozu-node-sdk/constants");
 var paymentConstants = require("./constants");
 var GeneralSettings = require("mozu-node-sdk/clients/commerce/settings/generalSettings");
-var Order = require("mozu-node-sdk/clients/commerce/order");
 var Guid = require("guid");
 
 var helper = (module.exports = {
@@ -53,10 +52,13 @@ var helper = (module.exports = {
   },
   isAmazonCheckout: function (context) {
     var params = this.parseUrlParams(context);
-    var hasAmzParams =
+    // V1: access_token + isAwsCheckout
+    var hasV1Params =
       _.has(params, "access_token") && _.has(params, "isAwsCheckout");
-    console.log("is Amazon checkout?", hasAmzParams);
-    return hasAmzParams;
+    // V2: amazonCheckoutSessionId
+    var hasV2Params = _.has(params, "amazonCheckoutSessionId") && _.has(params, "isAwsCheckout");
+    console.error("is Amazon checkout?", hasV1Params || hasV2Params);
+    return hasV1Params || hasV2Params;
   },
   parseUrlParams: function (context) {
     var request = context.request;
