@@ -22,8 +22,16 @@
  */
 
 var AmazonCheckout = require("../../amazon/checkout");
+var amazonCheckoutSession = require("./amazonCheckoutSession");
 
 module.exports = function (context, callback) {
+  // Check if this is a checkout session API request
+  var url = context.request.url || '';
+  if (url.indexOf('/amazonpay/v2/checkoutsession') !== -1) {
+    return amazonCheckoutSession(context, callback);
+  }
+
+  // Otherwise, handle normal cart page logic
   var amazonCheckout = new AmazonCheckout(context, callback);
   amazonCheckout
     .validateAndProcess()

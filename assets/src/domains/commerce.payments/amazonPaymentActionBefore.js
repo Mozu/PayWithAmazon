@@ -94,17 +94,41 @@ module.exports = function (context, callback) {
   } else {
     console.log("Payment before", paymentAction.actionName);
     var awsReferenceId = "";
+    var checkoutSessionId = "";
 
     try {
-      if (payment.data && payment.data.awsData)
+      // Check for Amazon Pay v2 checkout session ID
+      if (payment.data && payment.data.awsData) {
+        checkoutSessionId = payment.data.awsData.checkoutSessionId;
         awsReferenceId = payment.data.awsData.awsReferenceId;
-      else {
-        var newPayment = getPayment(order, "New");
-        console.log(newPayment);
-        if (newPayment) awsReferenceId = newPayment.externalTransactionId;
       }
 
-      if (awsReferenceId && paymentAction.actionName === "CreatePayment") {
+      if (!checkoutSessionId && !awsReferenceId) {
+        var newPayment = getPayment(order, "New");
+        console.log(newPayment);
+        if (newPayment) {
+          awsReferenceId = newPayment.externalTransactionId;
+        }
+      }
+
+      // Handle Amazon Pay v2 checkout session
+      if (checkoutSessionId && paymentAction.actionName === "CreatePayment") {
+        console.log("Processing Amazon Pay v2 checkout session:", checkoutSessionId);
+        amazonCheckout
+          .getBillingInfoFromSession(checkoutSessionId, billingInfo.billingContact)
+          .then(function (billingContact) {
+            billingInfo.billingContact = billingContact;
+            billingInfo.externalTransactionId = checkoutSessionId;
+            updateBillingInfo(context, callback, billingInfo);
+          })
+          .catch(function (error) {
+            console.error("Error getting billing info from session:", error);
+            callback(error);
+          });
+      }
+      // Handle legacy Amazon Pay v1 order reference
+      else if (awsReferenceId && paymentAction.actionName === "CreatePayment") {
+        console.log("Processing legacy Amazon Pay v1 order reference:", awsReferenceId);
         amazonCheckout.validateAmazonOrder(awsReferenceId).then(function () {
           amazonCheckout
             .getBillingInfo(awsReferenceId, billingInfo.billingContact)

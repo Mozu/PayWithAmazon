@@ -94,28 +94,28 @@ function AppInstall(context, callback) {
           settings
         ) {
           settings = settings || {};
-          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
+          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 25000;
           return settings;
         },
         amazonPaymentActionBefore: function (settings) {
           settings = settings || {};
-          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
+          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 25000;
           return settings;
         },
         amazonCartBefore: function (settings) {
           settings = settings || {};
-          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
+          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 25000;
           settings.configuration = { allowWarmCheckout: true };
           return settings;
         },
         amazonCheckoutBefore: function (settings) {
           settings = settings || {};
-          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
+          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 25000;
           return settings;
         },
         amazonSetFulfillmentInfo: function (settings) {
           settings = settings || {};
-          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
+          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 25000;
           settings.configuration = settings.configuration || {
             missingLastNameValue: "N/A",
           };
@@ -123,7 +123,7 @@ function AppInstall(context, callback) {
         },
         "http.commerce.checkouts.addDestination.before": function (settings) {
           settings = settings || {};
-          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
+          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 25000;
           settings.configuration = settings.configuration || {
             missingLastNameValue: "N/A",
           };
@@ -133,7 +133,7 @@ function AppInstall(context, callback) {
           settings
         ) {
           settings = settings || {};
-          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 30000;
+          settings.timeoutMilliseconds = settings.timeoutMilliseconds || 25000;
           settings.configuration = settings.configuration || {
             missingLastNameValue: "N/A",
           };
@@ -149,7 +149,7 @@ function AppInstall(context, callback) {
       namespace: context.get.nameSpace(),
       isEnabled: "false",
       description:
-        "<div style='font-size:13px;font-style:italic'>Please review our <a style='color:blue;' target='mozupwahelp' href='http://mozu.github.io/IntegrationDocuments/PayWithAmazon/Mozu-PayWithAmazon-App.htm'>Help</a> documentation to configure Pay With Amazon</div>",
+        "<div style='font-size:13px;font-style:italic'>Please review our <a style='color:blue;' target='mozupwahelp' href='http://mozu.github.io/IntegrationDocuments/PayWithAmazon/Mozu-PayWithAmazon-App.htm'>Help</a> documentation to configure Pay With Amazon V2</div>",
       credentials: [
         getPaymentActionFieldDef(
           "Environment",
@@ -160,24 +160,38 @@ function AppInstall(context, callback) {
           existingSettings
         ),
         getPaymentActionFieldDef(
-          "Seller Id",
-          paymentConstants.SELLERID,
+          "Merchant Id",
+          paymentConstants.MERCHANTID,
           "TextBox",
           false,
           null,
           existingSettings
         ),
         getPaymentActionFieldDef(
-          "Client Id",
-          paymentConstants.CLIENTID,
+          "StoreId",
+          paymentConstants.STOREID,
           "TextBox",
-          false,
+          true,
           null,
           existingSettings
         ),
         getPaymentActionFieldDef(
-          "MWS Auth Token",
-          paymentConstants.AUTHTOKEN,
+          "Public Key Id",
+          paymentConstants.PUBLICKEYID,
+          "TextBox",
+          false, //front-end needs this to render button
+          null,
+          existingSettings
+        ),
+        getPaymentActionFieldDef(
+          "Private Key (PEM format)",
+          paymentConstants.PRIVATEKEY,
+          //TODO Need to handle private key more securely
+          //     I made a SiteSettings changes to allow "Password" InputType to encrypt field for storage
+          //     The new API I made to fetch it, GetThirdPartyPaymentWorkflowWithPrivateValues, was intended to be private
+          //     But the node-sdk doesnt handle private APIs
+          //     Need to either implement call to internal api without sdk, make the api public, or rethink approach
+          //     See getThirdPartyPaymentWorkflowWithValues usage in helper.js for where we're fetching it
           "TextBox",
           true,
           null,

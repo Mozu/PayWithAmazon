@@ -59,6 +59,11 @@
       "id": "amazonCheckoutAfter",
       "virtualPath": "./dist\\storefront.manifest.all.js",
       "actionId": "http.storefront.pages.checkout.request.after"
+    },
+    {
+      "id": "checkoutSession",
+      "virtualPath": "./dist\\storefront.manifest.all.js",
+      "actionId": "http.storefront.routes"
     }
   ]
 }

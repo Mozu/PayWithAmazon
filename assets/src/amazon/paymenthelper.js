@@ -3,6 +3,7 @@ var helper = require("./helper");
 var _ = require("underscore");
 var paymentConstants = require("./constants");
 var amazonPay = require("./amazonpaysdk")();
+var amazonPayV2 = require("./amazonpaysdkv2")();
 
 var paymentHelper = (module.exports = {
   getPaymentConfig: function (context) {
@@ -10,6 +11,10 @@ var paymentHelper = (module.exports = {
     var fqn = helper.getPaymentFQN(context);
     return helper
       .createClientFromContext(PaymentSettings, context, true)
+      //TODO need to generate new mozu-node-sdk to have access to new API. Using old plaintext version for now
+      //     But the node-sdk requires public API and I wanted this to be private.
+      //     Should I implement call to internal endpoint, make the privateValues API public, or rethink this approach?
+      //.getThirdPartyPaymentWorkflowWithPrivateValues({ fullyQualifiedName: fqn })
       .getThirdPartyPaymentWorkflowWithValues({ fullyQualifiedName: fqn })
       .then(function (paymentSettings) {
         return self.getConfig(context, paymentSettings);
@@ -23,31 +28,29 @@ var paymentHelper = (module.exports = {
 
     var captureOnAuthorize =
       orderProcessing == paymentConstants.CAPTUREONSUBMIT;
-    var awsConfig = context.getSecureAppData("awsConfig");
-    if (!awsConfig) return {};
 
     var environment = helper.getValue(
       paymentSettings,
       paymentConstants.ENVIRONMENT
     );
+
+    // Build configuration supporting both v1 (MWS) and v2 (API v2)
     var config = {
       isSandbox: environment === "sandbox",
       environment: environment,
-      mwsAccessKeyId: awsConfig.mwsAccessKeyId,
-      mwsSecret: awsConfig.mwsSecret,
-      mwsAuthToken: helper.getValue(
-        paymentSettings,
-        paymentConstants.AUTHTOKEN
-      ),
-      sellerId: helper.getValue(paymentSettings, paymentConstants.SELLERID),
       region: helper.getValue(paymentSettings, paymentConstants.REGION),
-      clientId: helper.getValue(paymentSettings, paymentConstants.CLIENTID),
       captureOnAuthorize: captureOnAuthorize,
       isEnabled: paymentSettings.isEnabled,
       billingType: helper.getValue(
         paymentSettings,
         paymentConstants.BILLINGADDRESS
       ),
+
+      // Amazon Pay API v2 credentials
+      publicKeyId: helper.getValue(paymentSettings, "publicKeyId"),
+      privateKey: helper.getValue(paymentSettings, "privateKey"),
+      storeId: helper.getValue(paymentSettings, "storeId"),
+      merchantId: helper.getValue(paymentSettings, "merchantId"),
     };
     return Promise.resolve(config);
   },
@@ -64,25 +67,25 @@ var paymentHelper = (module.exports = {
 
     var config = self.getConfig(context, pwaSettings);
 
-    if (!config.mwsAccessKeyId || !config.mwsSecret) {
-      callback("Pay With Amazon - AWS Access Key/Secret not found.");
+    if (!config.publicKeyId || !config.privateKey) {
+      callback("Pay With Amazon - AWS PublicKey/PrivateKey not found.");
       return;
     }
 
     if (
-      !config.mwsAuthToken ||
-      !config.sellerId ||
+      !config.publicKeyId ||
+      !config.privateKey ||
+      !config.storeId ||
       !config.region ||
-      !config.clientId ||
+      !config.merchantId ||
       !config.environment
     ) {
       callback(
-        "Pay With Amazon - Environment/Auth Token/SellerId/Region/ClientId fields are required."
+        "Pay With Amazon - Environment/PublicKey/PrivateKey/StoreId/Region/MerchantId fields are required."
       );
       return;
     }
 
-    //TODO: validate values
     callback();
   },
   getInteractionByStatus: function (interactions, status) {
@@ -650,5 +653,389 @@ var paymentHelper = (module.exports = {
         };
       }
     );
+  },
+
+  // ========================================
+  // Amazon Pay API v2 Methods
+  // ========================================
+
+  /**
+   * Determine if this is a v2 checkout session or v1 order reference
+   */
+  isCheckoutSession: function(payment) {
+    return payment.externalTransactionId &&
+           payment.externalTransactionId.indexOf('amzn-checkout-') === 0;
+  },
+
+  /**
+   * Complete checkout session and create charge (v2)
+   * Replaces confirmAndAuthorize for v2
+   */
+  confirmAndAuthorizeV2: function (context, config, paymentAction, payment) {
+    var self = this;
+    var checkoutSessionId = payment.externalTransactionId;
+
+    console.log("Amazon Pay v2: Complete checkout session and create charge", checkoutSessionId);
+
+    try {
+      // Configure v2 SDK
+      amazonPayV2.configure({
+        publicKeyId: config.publicKeyId,
+        privateKey: config.privateKey,
+        region: config.region,
+        isSandbox: config.isSandbox
+      });
+
+      // TODO: For end-of-checkout placement, may need to update checkout session BEFORE completing it
+      // if merchant-collected shipping/billing address needs to be sent to Amazon.
+      // Call amazonPayV2.updateCheckoutSession(checkoutSessionId, updatePayload) here if needed.
+      // See: https://developer.amazon.com/docs/amazon-pay-checkout/end-of-checkout.html
+
+      // Step 1: Complete the checkout session
+      var completePayload = {
+        chargeAmount: {
+          amount: paymentAction.amount,
+          currencyCode: paymentAction.currencyCode
+        }
+      };
+
+      return amazonPayV2.completeCheckoutSession(checkoutSessionId, completePayload)
+        .then(function(completedSession) {
+          console.log("Checkout session completed:", completedSession);
+
+          var chargePermissionId = completedSession.chargePermissionId;
+          if (!chargePermissionId) {
+            throw new Error("No charge permission ID in completed session");
+          }
+
+          // Step 2: Create charge
+          var captureNow = config.captureOnAuthorize === true;
+          var chargePayload = {
+            chargePermissionId: chargePermissionId,
+            chargeAmount: {
+              amount: paymentAction.amount,
+              currencyCode: paymentAction.currencyCode
+            },
+            captureNow: captureNow,
+            canHandlePendingAuthorization: false
+          };
+
+          return amazonPayV2.createCharge(chargePayload)
+            .then(function(chargeResult) {
+              console.log("Charge created:", chargeResult);
+
+              var chargeId = chargeResult.chargeId;
+              var chargeState = chargeResult.statusDetails.state;
+              var status = paymentConstants.DECLINED;
+
+              // Map charge state to payment status
+              if (chargeState === 'Authorized' || chargeState === 'AuthorizationInitiated') {
+                status = paymentConstants.AUTHORIZED;
+              } else if (chargeState === 'Captured') {
+                status = paymentConstants.CAPTURED;
+              }
+
+              var response = {
+                awsTransactionId: chargeId,
+                chargePermissionId: chargePermissionId,
+                responseCode: chargeResult.statusDetails.reasonCode || 200,
+                responseText: chargeResult.statusDetails.reasonDescription || chargeState,
+                status: status,
+                amount: paymentAction.amount,
+                captureOnAuthorize: captureNow
+              };
+
+              // If capture on authorize, add capture interaction details
+              if (captureNow && chargeState === 'Captured') {
+                response.captureId = chargeId; // In v2, charge ID is same for auth and capture
+              }
+
+              console.log("Charge response:", response);
+              return response;
+            });
+        })
+        .catch(function (err) {
+          console.error("Amazon Pay v2 charge error:", err);
+          return {
+            status: paymentConstants.DECLINED,
+            responseCode: err.code || 'ERROR',
+            responseText: err.message || 'Charge failed',
+          };
+        });
+    } catch (e) {
+      console.error("Exception in confirmAndAuthorizeV2:", e);
+      return Promise.resolve({
+        status: paymentConstants.DECLINED,
+        responseText: e.message || e
+      });
+    }
+  },
+
+  /**
+   * Capture a charge (v2)
+   * Replaces captureAmount for v2
+   */
+  captureAmountV2: function (context, config, paymentAction, payment) {
+    var self = this;
+    console.log("Amazon Pay v2: Capture charge");
+
+    try {
+      // Configure v2 SDK
+      amazonPayV2.configure({
+        publicKeyId: config.publicKeyId,
+        privateKey: config.privateKey,
+        region: config.region,
+        isSandbox: config.isSandbox
+      });
+
+      // Manual capture handling
+      if (paymentAction.manualGatewayInteraction) {
+        console.log("Manual capture...dont send to amazon");
+        return Promise.resolve({
+          amount: paymentAction.amount,
+          gatewayResponseCode: "OK",
+          status: paymentConstants.CAPTURED,
+          awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId,
+        });
+      }
+
+      // Find authorized interaction
+      var authorizedInteraction = self.getInteractionByStatus(
+        payment.interactions,
+        paymentConstants.AUTHORIZED
+      );
+
+      if (!authorizedInteraction) {
+        console.error("No authorized interaction found");
+        return Promise.resolve({
+          status: paymentConstants.FAILED,
+          responseText: "Amazon Charge Id not found in payment interactions",
+          responseCode: 500,
+        });
+      }
+
+      var chargeId = authorizedInteraction.gatewayTransactionId;
+
+      // Create capture payload
+      var capturePayload = {
+        captureAmount: {
+          amount: paymentAction.amount,
+          currencyCode: paymentAction.currencyCode
+        },
+        softDescriptor: "Order Capture"
+      };
+
+      return amazonPayV2.captureCharge(chargeId, capturePayload)
+        .then(function(captureResult) {
+          console.log("Capture result:", captureResult);
+
+          var captureState = captureResult.statusDetails.state;
+          var status = paymentConstants.FAILED;
+
+          if (captureState === 'Captured') {
+            status = paymentConstants.CAPTURED;
+          } else if (captureState === 'Pending') {
+            status = paymentConstants.FAILED; // Will retry or handle pending
+          }
+
+          return {
+            status: status,
+            awsTransactionId: captureResult.chargeId,
+            responseText: captureResult.statusDetails.reasonDescription || captureState,
+            responseCode: captureResult.statusDetails.reasonCode || 200,
+            amount: paymentAction.amount,
+          };
+        })
+        .catch(function(err) {
+          console.error("Capture error:", err);
+          return {
+            status: paymentConstants.FAILED,
+            responseText: err.message || 'Capture failed',
+            responseCode: err.code || 'ERROR',
+          };
+        });
+    } catch (e) {
+      console.error("Exception in captureAmountV2:", e);
+      return Promise.resolve({
+        status: paymentConstants.FAILED,
+        responseText: e.message || e
+      });
+    }
+  },
+
+  /**
+   * Cancel/void a charge (v2)
+   * Replaces voidPayment for v2
+   */
+  voidPaymentV2: function (context, config, paymentAction, payment) {
+    var self = this;
+    console.log("Amazon Pay v2: Cancel charge");
+
+    try {
+      // Manual void handling
+      if (paymentAction.manualGatewayInteraction) {
+        console.log("Manual void...dont send to amazon");
+        return Promise.resolve({
+          amount: paymentAction.amount,
+          gatewayResponseCode: "OK",
+          status: paymentConstants.VOIDED,
+          awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId,
+        });
+      }
+
+      // Check if already captured
+      var capturedInteraction = self.getInteractionByStatus(
+        payment.interactions,
+        paymentConstants.CAPTURED
+      );
+
+      if (capturedInteraction) {
+        return Promise.resolve({
+          status: paymentConstants.FAILED,
+          responseCode: "InvalidRequest",
+          responseText: "Payment with captures cannot be voided. Please issue a refund",
+        });
+      }
+
+      // Find authorized interaction
+      var authorizedInteraction = self.getInteractionByStatus(
+        payment.interactions,
+        paymentConstants.AUTHORIZED
+      );
+
+      if (!authorizedInteraction || context.get.isVoidActionNoOp()) {
+        return Promise.resolve({
+          status: paymentConstants.VOIDED,
+          amount: context.get.isVoidActionNoOp() ? 0 : payment.amount,
+        });
+      }
+
+      // Configure v2 SDK
+      amazonPayV2.configure({
+        publicKeyId: config.publicKeyId,
+        privateKey: config.privateKey,
+        region: config.region,
+        isSandbox: config.isSandbox
+      });
+
+      var chargeId = authorizedInteraction.gatewayTransactionId;
+      var cancelPayload = {
+        cancellationReason: paymentAction.reason || "Customer requested cancellation"
+      };
+
+      return amazonPayV2.cancelCharge(chargeId, cancelPayload)
+        .then(function(result) {
+          console.log("Cancel result:", result);
+          return {
+            status: paymentConstants.VOIDED,
+            amount: paymentAction.amount,
+            awsTransactionId: chargeId
+          };
+        })
+        .catch(function(err) {
+          console.error("Cancel error:", err);
+          return {
+            status: paymentConstants.FAILED,
+            responseText: err.message || 'Cancellation failed',
+            responseCode: err.code || 'ERROR',
+          };
+        });
+    } catch (e) {
+      console.error("Exception in voidPaymentV2:", e);
+      return Promise.resolve({
+        status: paymentConstants.FAILED,
+        responseText: e.message || e
+      });
+    }
+  },
+
+  /**
+   * Create refund (v2)
+   * Replaces creditPayment for v2
+   */
+  creditPaymentV2: function (context, config, paymentAction, payment) {
+    var self = this;
+    console.log("Amazon Pay v2: Create refund");
+
+    try {
+      // Manual credit handling
+      if (paymentAction.manualGatewayInteraction) {
+        console.log("Manual credit...dont send to amazon");
+        return Promise.resolve({
+          amount: paymentAction.amount,
+          gatewayResponseCode: "OK",
+          status: paymentConstants.CREDITED,
+          awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId,
+        });
+      }
+
+      // Find captured interaction
+      var capturedInteraction = self.getInteractionByStatus(
+        payment.interactions,
+        paymentConstants.CAPTURED
+      );
+
+      if (!capturedInteraction) {
+        return Promise.resolve({
+          status: paymentConstants.FAILED,
+          responseCode: "InvalidRequest",
+          responseText: "Payment has not been captured to issue refund",
+        });
+      }
+
+      // Configure v2 SDK
+      amazonPayV2.configure({
+        publicKeyId: config.publicKeyId,
+        privateKey: config.privateKey,
+        region: config.region,
+        isSandbox: config.isSandbox
+      });
+
+      var chargeId = capturedInteraction.gatewayTransactionId;
+      var refundPayload = {
+        chargeId: chargeId,
+        refundAmount: {
+          amount: paymentAction.amount,
+          currencyCode: paymentAction.currencyCode
+        },
+        softDescriptor: "Refund"
+      };
+
+      return amazonPayV2.createRefund(refundPayload)
+        .then(function(refundResult) {
+          console.log("Refund result:", refundResult);
+
+          var refundState = refundResult.statusDetails.state;
+          var status = paymentConstants.FAILED;
+
+          if (refundState === 'Refunded') {
+            status = paymentConstants.CREDITED;
+          } else if (refundState === 'RefundInitiated') {
+            status = paymentConstants.CREDITPENDING;
+          }
+
+          return {
+            status: status,
+            awsTransactionId: refundResult.refundId,
+            responseText: refundResult.statusDetails.reasonDescription || refundState,
+            responseCode: refundResult.statusDetails.reasonCode || 200,
+            amount: paymentAction.amount,
+          };
+        })
+        .catch(function(err) {
+          console.error("Refund error:", err);
+          return {
+            status: paymentConstants.FAILED,
+            responseText: err.message || 'Refund failed',
+            responseCode: err.code || 'ERROR',
+          };
+        });
+    } catch (e) {
+      console.error("Exception in creditPaymentV2:", e);
+      return Promise.resolve({
+        status: paymentConstants.FAILED,
+        responseText: e.message || e
+      });
+    }
   },
 });

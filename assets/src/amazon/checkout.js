@@ -3,6 +3,7 @@ var qs = require("querystring");
 var _ = require("underscore");
 var Guid = require("guid");
 var amazonPay = require("./amazonpaysdk")();
+var amazonPayV2 = require("./amazonpaysdkv2")();
 var constants = require("mozu-node-sdk/constants");
 var paymentConstants = require("./constants");
 var orderClient = require("mozu-node-sdk/clients/commerce/order")();
@@ -11,7 +12,7 @@ var FulfillmentInfoClient = require("mozu-node-sdk/clients/commerce/orders/fulfi
 var checkoutClient = require("mozu-node-sdk/clients/commerce/checkout")();
 var generalSettings = require("mozu-node-sdk/clients/commerce/settings/generalSettings");
 var helper = require("./helper");
-var paymentHelper = require("./paymentHelper");
+var paymentHelper = require("./paymenthelper");
 
 function getCheckoutSettings(context) {
   var client = helper.createClientFromContext(generalSettings, context, true);
@@ -120,6 +121,33 @@ function getAmazonOrderDetails(ctx, awsReferenceId, addressConsentToken) {
   });
 }
 
+/**
+ * Get Amazon Pay v2 Checkout Session details
+ * @param {Object} ctx - Context
+ * @param {string} checkoutSessionId - Checkout session ID
+ * @returns {Promise} Checkout session details
+ */
+function getCheckoutSessionDetails(ctx, checkoutSessionId) {
+  return paymentHelper.getPaymentConfig(ctx).then(function (config) {
+    console.debug('getCheckoutSessionDetails Retrieved payment config: ', config);
+    // Configure v2 SDK
+    amazonPayV2.configure({
+      publicKeyId: config.publicKeyId,
+      privateKey: config.privateKey,
+      region: config.region,
+      isSandbox: config.isSandbox
+    });
+
+    return amazonPayV2.getCheckoutSession(checkoutSessionId).then(function (session) {
+      console.debug('Checkout session retrieved:', session);
+      return {
+        checkoutSession: session,
+        config: config
+      };
+    });
+  });
+}
+
 function getFulfillmentInfo(awsOrder, data, context) {
   var orderDetails =
     awsOrder.GetOrderReferenceDetailsResponse.GetOrderReferenceDetailsResult
@@ -162,6 +190,64 @@ function getFulfillmentInfo(awsOrder, data, context) {
   } catch (e) {
     console.log(e);
     new Error(e);
+  }
+}
+
+/**
+ * Get fulfillment info from Amazon Pay v2 Checkout Session
+ * @param {Object} checkoutSession - Checkout session object
+ * @param {Object} data - Additional data to include
+ * @param {Object} context - Request context
+ * @returns {Object} Fulfillment contact info
+ */
+function getFulfillmentInfoFromSession(checkoutSession, data, context) {
+  try {
+    var shippingAddress = checkoutSession.shippingAddress;
+    var buyer = checkoutSession.buyer;
+
+    if (!shippingAddress) {
+      throw new Error('No shipping address in checkout session');
+    }
+
+    var name = shippingAddress.name || '';
+    var nameSplit = name.split(/\s/);
+    var firstName = nameSplit[0] || '';
+    var lastName = context.configuration.missingLastNameValue || 'N/A';
+    if (nameSplit[1]) {
+      lastName = nameSplit.slice(1).join(' ');
+    }
+
+    var registeredUser = helper.getUserEmail(context);
+    var phone = shippingAddress.phoneNumber || 'N/A';
+
+    var contact = {
+      fulfillmentContact: {
+        email: registeredUser || (buyer ? buyer.email : ''),
+        firstName: firstName,
+        lastNameOrSurname: lastName,
+        phoneNumbers: {
+          home: phone,
+        },
+        address: {
+          address1: shippingAddress.addressLine1 || '',
+          address2: shippingAddress.addressLine2 || '',
+          address3: shippingAddress.addressLine3 || '',
+          cityOrTown: shippingAddress.city || '',
+          stateOrProvince: shippingAddress.stateOrRegion || '',
+          postalOrZipCode: shippingAddress.postalCode || '',
+          countryCode: shippingAddress.countryCode || '',
+          addressType: "Residential",
+          isValidated: "true",
+        },
+      },
+      data: data,
+    };
+
+    console.log('Fulfillment info from session:', contact);
+    return contact;
+  } catch (e) {
+    console.error('Error parsing fulfillment info from session:', e);
+    throw new Error(e);
   }
 }
 
@@ -488,6 +574,86 @@ module.exports = function (context, callback) {
       });
   };
 
+  /**
+   * Get billing info from Amazon Pay v2 checkout session
+   * @param {string} checkoutSessionId - Checkout session ID
+   * @param {Object} billingContact - Base billing contact info
+   * @returns {Promise<Object>} Updated billing contact
+   */
+  self.getBillingInfoFromSession = function (checkoutSessionId, billingContact) {
+    console.log("Getting billing info from checkout session:", checkoutSessionId);
+
+    return getCheckoutSessionDetails(self.ctx, checkoutSessionId)
+      .then(function (data) {
+        var session = data.checkoutSession;
+        var order = getOrder(self.ctx);
+
+        console.log("Checkout session details:", session);
+
+        // Get email from order destinations if available
+        if (order.destinations) {
+          var awsDestination = _.find(
+            order.destinations,
+            function (destination) {
+              return (
+                destination.data &&
+                destination.data.checkoutSessionId == checkoutSessionId
+              );
+            }
+          );
+          if (awsDestination && awsDestination.destinationContact) {
+            billingContact.email = awsDestination.destinationContact.email;
+          }
+        }
+
+        // If no email yet, use buyer email from session
+        if (!billingContact.email && session.buyer && session.buyer.email) {
+          billingContact.email = session.buyer.email;
+        }
+
+        // Check if we should use billing address (based on config)
+        if (!data.config.billingType || data.config.billingType === "0") {
+          console.log("Using default billing contact");
+          return billingContact;
+        }
+
+        // Extract billing address from checkout session
+        var billingAddress = session.billingAddress;
+        if (billingAddress) {
+          console.log("Using billing address from checkout session");
+
+          var name = billingAddress.name || '';
+          var parts = name.split(/\s/);
+          var firstName = parts[0] || '';
+          var lastName = parts.slice(1).join(' ') || '';
+
+          billingContact.firstName = firstName;
+          billingContact.lastNameOrSurname = lastName;
+          billingContact.phoneNumbers = {
+            home: billingAddress.phoneNumber || "N/A",
+          };
+          billingContact.address = {
+            address1: billingAddress.addressLine1 || '',
+            address2: billingAddress.addressLine2 || '',
+            address3: billingAddress.addressLine3 || '',
+            cityOrTown: billingAddress.city || '',
+            stateOrProvince: billingAddress.stateOrRegion || '',
+            postalOrZipCode: billingAddress.postalCode || '',
+            countryCode: billingAddress.countryCode || '',
+            addressType: "Residential",
+            isValidated: true,
+          };
+        }
+
+        console.log("billing contact from session:", billingContact);
+        return billingContact;
+      })
+      .catch(function (err) {
+        console.error("Error getting billing info from session:", err);
+        return billingContact;
+      });
+  };
+
   self.getOrder = function () {
     return getOrder(self.ctx);
   };
@@ -553,14 +719,23 @@ module.exports = function (context, callback) {
       paymentHelper
         .getPaymentConfig(self.ctx)
         .then(function (config) {
-          //amazonPay.configure(config);
+          // Detect if this is Amazon Pay v2 (checkout session) or v1 (order reference)
+          var isV2 = paymentHelper.isCheckoutSession(payment);
+          console.log("Amazon Pay version:", isV2 ? "v2 (Checkout Session)" : "v1 (Order Reference)");
+
           switch (paymentAction.actionName) {
             case "CreatePayment":
               console.log(
                 "adding new payment interaction for ",
                 paymentAction.externalTransactionId
               );
-              //Add Details
+              // v2 doesn't need createNewPayment - session already created by frontend
+              if (isV2) {
+                return {
+                  status: paymentConstants.NEW,
+                  amount: paymentAction.amount
+                };
+              }
               return paymentHelper.createNewPayment(
                 self.ctx,
                 config,
@@ -573,6 +748,14 @@ module.exports = function (context, callback) {
                 payment.externalTransactionId
               );
               console.log("Void Payment", payment.id);
+              if (isV2) {
+                return paymentHelper.voidPaymentV2(
+                  self.ctx,
+                  config,
+                  paymentAction,
+                  payment
+                );
+              }
               return paymentHelper.voidPayment(
                 self.ctx,
                 config,
@@ -584,6 +767,14 @@ module.exports = function (context, callback) {
                 "Authorizing payment for ",
                 payment.externalTransactionId
               );
+              if (isV2) {
+                return paymentHelper.confirmAndAuthorizeV2(
+                  self.ctx,
+                  config,
+                  paymentAction,
+                  payment
+                );
+              }
               return paymentHelper.confirmAndAuthorize(
                 self.ctx,
                 config,
@@ -595,6 +786,14 @@ module.exports = function (context, callback) {
                 "Capture payment for ",
                 payment.externalTransactionId
               );
+              if (isV2) {
+                return paymentHelper.captureAmountV2(
+                  self.ctx,
+                  config,
+                  paymentAction,
+                  payment
+                );
+              }
               return paymentHelper.captureAmount(
                 self.ctx,
                 config,
@@ -606,6 +805,14 @@ module.exports = function (context, callback) {
                 "Crediting payment for ",
                 payment.externalTransactionId
               );
+              if (isV2) {
+                return paymentHelper.creditPaymentV2(
+                  self.ctx,
+                  config,
+                  paymentAction,
+                  payment
+                );
+              }
               return paymentHelper.creditPayment(
                 self.ctx,
                 config,
@@ -617,6 +824,15 @@ module.exports = function (context, callback) {
                 "Decline payment for ",
                 payment.externalTransactionId
               );
+              // Decline uses same logic as void
+              if (isV2) {
+                return paymentHelper.voidPaymentV2(
+                  self.ctx,
+                  config,
+                  paymentAction,
+                  payment
+                );
+              }
               return paymentHelper.declinePayment(
                 self.ctx,
                 config,
