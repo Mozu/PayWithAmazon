@@ -2,8 +2,9 @@ var PaymentSettings = require("mozu-node-sdk/clients/commerce/settings/checkout/
 var helper = require("./helper");
 var _ = require("underscore");
 var paymentConstants = require("./constants");
+const constants = require("./constants");
 var amazonPay = require("./amazonpaysdk")();
-var amazonPayV2 = require("./amazonpaysdkv2")();
+var amazonPayV2 = require("./v2/sdk")();
 
 var paymentHelper = (module.exports = {
   getPaymentConfig: function (context) {
@@ -35,10 +36,20 @@ var paymentHelper = (module.exports = {
     );
 
     // Build configuration supporting both v1 (MWS) and v2 (API v2)
+    var rawRegion = helper.getValue(paymentSettings, paymentConstants.REGION);
+
+    // Map v1 region codes to v2 region codes for Amazon Pay API v2
+    var regionMapping = {
+      'us': 'NA',  // US maps to North America for v2
+      'uk': 'EU',  // UK maps to Europe for v2
+      'de': 'EU',  // Germany maps to Europe for v2
+      'jp': 'JP'   // Japan stays the same
+    };
+
     var config = {
       isSandbox: environment === "sandbox",
       environment: environment,
-      region: helper.getValue(paymentSettings, paymentConstants.REGION),
+      region: regionMapping[rawRegion] || rawRegion, // Use mapping or fallback to raw value
       captureOnAuthorize: captureOnAuthorize,
       isEnabled: paymentSettings.isEnabled,
       billingType: helper.getValue(
@@ -96,7 +107,7 @@ var paymentHelper = (module.exports = {
   processPaymentResult: function (
     context,
     paymentResult,
-    paymentAction,
+    paymentAction,  
     payment
   ) {
     var interactionType = "";
@@ -167,8 +178,8 @@ var paymentHelper = (module.exports = {
       captureInteraction.amount = paymentResult.amount;
       captureInteraction.awsTransactionId = paymentResult.awsTransactionId;
       captureInteraction.gatewayResponseText = paymentResult.responseText;
-      captureInteraction.gatewayResponseCode = paymentResult.responseCode;  
-      console.log("Capture Payment Interaction", captureInteraction);   
+      captureInteraction.gatewayResponseCode = paymentResult.responseCode;
+      console.log("Capture Payment Interaction", captureInteraction);
       payment.interactions.push(captureInteraction);
       context.exec.addPaymentInteraction(captureInteraction);
     }
@@ -338,12 +349,12 @@ var paymentHelper = (module.exports = {
     amazonPay.configure(config);
     var declineCapture = false;
     var pendingCapture = false;
-    console.log("Configuration:",context.configuration);
-    if (context.configuration && context.configuration.payment){      
+    console.log("Configuration:", context.configuration);
+    if (context.configuration && context.configuration.payment) {
       declineCapture = context.configuration.payment.declineCapture === true;
       pendingCapture = context.configuration.payment.pendingCapture === true;
-    }     
-     
+    }
+
     return helper
       .getOrderDetails(context)
       .then(function (orderDetails) {
@@ -383,47 +394,47 @@ var paymentHelper = (module.exports = {
           };
         }
 
-        var capturedInteractionWithPendingState = _.findWhere(interactions, {status: "Failed", gatewayResponseText: "Pending"});
-        if(capturedInteractionWithPendingState){
+        var capturedInteractionWithPendingState = _.findWhere(interactions, { status: "Failed", gatewayResponseText: "Pending" });
+        if (capturedInteractionWithPendingState) {
           console.log("Found capture interaction with pending status");
           var amazonCaptureId = capturedInteractionWithPendingState.gatewayTransactionId;
           return amazonPay
-          .getCaptureDetails(amazonCaptureId)
-          .then(function(captureResponse){
-            var captureDetails = captureResponse.GetCaptureDetailsResponse.GetCaptureDetailsResult.CaptureDetails;
-            //console.log("AWS Capture Details", JSON.stringify(captureDetails));
-            var state = captureDetails.CaptureStatus.State;
-            var status;
-            switch (state) {
-              case "Completed":
-                status = paymentConstants.CAPTURED;
-                break;
-              case "Declined":
-                status = paymentConstants.DECLINED;
-                break;  
-              default:
-                status = paymentConstants.FAILED;
-                break;
-            }
-            var response = {
-              status: status,
-              awsTransactionId: captureDetails.AmazonCaptureId,
-              responseText: "Capture Status: "+state,
-              responseCode: 200,
-              amount: captureDetails.CaptureAmount.Amount,
-            };
-            return response;
-          })
-          .catch(function (err) {
+            .getCaptureDetails(amazonCaptureId)
+            .then(function (captureResponse) {
+              var captureDetails = captureResponse.GetCaptureDetailsResponse.GetCaptureDetailsResult.CaptureDetails;
+              //console.log("AWS Capture Details", JSON.stringify(captureDetails));
+              var state = captureDetails.CaptureStatus.State;
+              var status;
+              switch (state) {
+                case "Completed":
+                  status = paymentConstants.CAPTURED;
+                  break;
+                case "Declined":
+                  status = paymentConstants.DECLINED;
+                  break;
+                default:
+                  status = paymentConstants.FAILED;
+                  break;
+              }
+              var response = {
+                status: status,
+                awsTransactionId: captureDetails.AmazonCaptureId,
+                responseText: "Capture Status: " + state,
+                responseCode: 200,
+                amount: captureDetails.CaptureAmount.Amount,
+              };
+              return response;
+            })
+            .catch(function (err) {
               console.error("Get Capture Detials Error", err);
               return {
                 status: paymentConstants.FAILED,
                 responseText: err.message,
                 responseCode: err.code,
               };
-          });                    
+            });
         }
-       
+
 
         return amazonPay
           .captureAmount(
@@ -518,8 +529,8 @@ var paymentHelper = (module.exports = {
 
               var response = {
                 status:
-                  state == "Pending" ? paymentConstants.CREDITPENDING 
-                  : state == "Completed" ? paymentConstants.CREDITED : paymentConstants.FAILED,
+                  state == "Pending" ? paymentConstants.CREDITPENDING
+                    : state == "Completed" ? paymentConstants.CREDITED : paymentConstants.FAILED,
                 awsTransactionId: refundId,
                 responseText: state,
                 responseCode: 200,
@@ -662,9 +673,12 @@ var paymentHelper = (module.exports = {
   /**
    * Determine if this is a v2 checkout session or v1 order reference
    */
-  isCheckoutSession: function(payment) {
-    return payment.externalTransactionId &&
-           payment.externalTransactionId.indexOf('amzn-checkout-') === 0;
+  isAmazonpayV2: function (payment) {
+    // Check if payment type is PayWithAmazonV2 (case-insensitive)
+    var paymentType = payment.paymentType || '';
+    var isV2 = paymentType.toLowerCase() === constants.PAYMENTSETTINGID.toLocaleLowerCase();
+   
+    return isV2;
   },
 
   /**
@@ -692,36 +706,136 @@ var paymentHelper = (module.exports = {
       // See: https://developer.amazon.com/docs/amazon-pay-checkout/end-of-checkout.html
 
       // Step 1: Complete the checkout session
-      var completePayload = {
-        chargeAmount: {
-          amount: paymentAction.amount,
-          currencyCode: paymentAction.currencyCode
-        }
-      };
+      // Note: chargeAmount must match EXACTLY what was sent in updateCheckoutSession
+      
+      // First, get the session to check its current state
+      return amazonPayV2.getCheckoutSession(checkoutSessionId)
+        .then(function(currentSession) {
+          
+          // Check if session already has a charge (preventing duplicate charges)
+          if (currentSession.chargeId) {
+            console.error("[COMPLETE] Session already has a charge:", currentSession.chargeId);
+            // Session already completed with a charge - return existing charge details
+            return amazonPayV2.getCharge(currentSession.chargeId)
+              .then(function(existingCharge) {
+                console.error("[COMPLETE] Using existing charge:", existingCharge);
+                
+                var chargeState = existingCharge.statusDetails.state;
+                var status = paymentConstants.DECLINED;
+                
+                if (chargeState === 'Authorized' || chargeState === 'AuthorizationInitiated') {
+                  status = paymentConstants.AUTHORIZED;
+                } else if (chargeState === 'Captured') {
+                  status = paymentConstants.CAPTURED;
+                }
+                
+                return {
+                  awsTransactionId: existingCharge.chargeId,
+                  chargePermissionId: existingCharge.chargePermissionId,
+                  responseCode: existingCharge.statusDetails.reasonCode || 200,
+                  responseText: existingCharge.statusDetails.reasonDescription || chargeState,
+                  status: status,
+                  amount: parseFloat(existingCharge.chargeAmount.amount),
+                  captureOnAuthorize: existingCharge.captureAmount ? true : false
+                };
+              });
+          }
+          
+          // NOTE: paymentIntent must be set in updateCheckoutSession, not completeCheckoutSession
+          // The completeCheckoutSession only needs chargeAmount to match what was set in updateCheckoutSession
+          var completePayload = {
+            chargeAmount: {
+              amount: paymentAction.amount,
+              currencyCode: paymentAction.currencyCode
+            }
+          };
 
-      return amazonPayV2.completeCheckoutSession(checkoutSessionId, completePayload)
-        .then(function(completedSession) {
-          console.log("Checkout session completed:", completedSession);
+          console.error("[COMPLETE] Complete payload:", JSON.stringify(completePayload));
+          
+          return amazonPayV2.completeCheckoutSession(checkoutSessionId, completePayload);
+        })
+        .then(function (completedSession) {
+           console.error("[COMPLETE] Checkout session completed:", JSON.stringify(completedSession));
+           console.error("[COMPLETE] completedSession state:", completedSession.statusDetails ? completedSession.statusDetails.state : 'Unknown');
+           console.error("[COMPLETE] completedSession chargePermissionId:", completedSession.chargePermissionId);
+           console.error("[COMPLETE] completedSession chargeId:", completedSession.chargeId);
 
           var chargePermissionId = completedSession.chargePermissionId;
           if (!chargePermissionId) {
             throw new Error("No charge permission ID in completed session");
           }
 
-          // Step 2: Create charge
+          // IMPORTANT: If completeCheckoutSession already created a charge, use that instead
+          if (completedSession.chargeId) {
+            console.error("[CHARGE] Charge already exists from completeCheckoutSession:", completedSession.chargeId);
+            console.error("[CHARGE] Retrieving existing charge instead of creating new one");
+            
+            return amazonPayV2.getCharge(completedSession.chargeId)
+              .then(function(existingCharge) {
+                console.error("[CHARGE] Retrieved existing charge:", JSON.stringify(existingCharge));
+                
+                var chargeState = existingCharge.statusDetails.state;
+                var status = paymentConstants.DECLINED;
+                
+                // AuthorizePayment always creates Authorization interaction
+                // Even if Amazon captured the funds immediately with AuthorizeWithCapture
+                if (chargeState === 'Authorized' || chargeState === 'AuthorizationInitiated') {
+                  status = paymentConstants.AUTHORIZED;
+                } else if (chargeState === 'Captured') {
+                  status = paymentConstants.CAPTURED;
+                }
+                
+                var response = {
+                  awsTransactionId: existingCharge.chargeId,
+                  chargePermissionId: existingCharge.chargePermissionId,
+                  responseCode: existingCharge.statusDetails.reasonCode || 200,
+                  responseText: existingCharge.statusDetails.reasonDescription || chargeState,
+                  status: status,
+                  amount: parseFloat(existingCharge.chargeAmount.amount),
+                  // Don't add separate capture interaction - status=CAPTURED indicates funds are collected
+                  captureOnAuthorize: false,
+                  captureId: chargeState === 'Captured' ? existingCharge.chargeId : null
+                };
+                
+                return response;
+              });
+          }
+
+          console.error("payment action :", JSON.stringify(paymentAction));
+          console.error("[CHARGE] completedSession chargePermissionId:", chargePermissionId);
+          console.error("[CHARGE] completedSession.paymentPreferences:", JSON.stringify(completedSession.paymentPreferences));
+          
+          // Step 2: Create charge (only if not already created by completeCheckoutSession)
           var captureNow = config.captureOnAuthorize === true;
+          
+          // IMPORTANT: The charge amount must match what was authorized in the session
+          // Use the amount from completedSession if available
+          var authorizedAmount = paymentAction.amount;
+          var authorizedCurrency = paymentAction.currencyCode;
+          
+          // Check if completedSession has the authorized amount
+          if (completedSession.paymentDetails && completedSession.paymentDetails.chargeAmount) {
+            authorizedAmount = completedSession.paymentDetails.chargeAmount.amount;
+            authorizedCurrency = completedSession.paymentDetails.chargeAmount.currencyCode;
+            console.error("[CHARGE] Using amount from completedSession:", authorizedAmount, authorizedCurrency);
+          } else {
+            console.error("[CHARGE] Using amount from paymentAction:", authorizedAmount, authorizedCurrency);
+          }
+          
           var chargePayload = {
             chargePermissionId: chargePermissionId,
             chargeAmount: {
-              amount: paymentAction.amount,
-              currencyCode: paymentAction.currencyCode
+              amount: authorizedAmount,
+              currencyCode: authorizedCurrency
             },
             captureNow: captureNow,
             canHandlePendingAuthorization: false
           };
+          
+          console.error("[CHARGE] Charge payload:", JSON.stringify(chargePayload));
 
           return amazonPayV2.createCharge(chargePayload)
-            .then(function(chargeResult) {
+            .then(function (chargeResult) {
               console.log("Charge created:", chargeResult);
 
               var chargeId = chargeResult.chargeId;
@@ -752,14 +866,22 @@ var paymentHelper = (module.exports = {
 
               console.log("Charge response:", response);
               return response;
+            })
+            .catch(function (chargeErr) {
+              console.error("Amazon Pay v2 createCharge error:", chargeErr);
+              return {
+                status: paymentConstants.DECLINED,
+                responseCode: chargeErr.code || 'ERROR',
+                responseText: chargeErr.message || 'Charge failed',
+              };
             });
         })
-        .catch(function (err) {
-          console.error("Amazon Pay v2 charge error:", err);
+        .catch(function (completeErr) {
+          console.error("Amazon Pay v2 completeCheckoutSession error:", completeErr);
           return {
             status: paymentConstants.DECLINED,
-            responseCode: err.code || 'ERROR',
-            responseText: err.message || 'Charge failed',
+            responseCode: completeErr.code || 'ERROR',
+            responseText: completeErr.message || 'Complete checkout session failed',
           };
         });
     } catch (e) {
@@ -826,7 +948,7 @@ var paymentHelper = (module.exports = {
       };
 
       return amazonPayV2.captureCharge(chargeId, capturePayload)
-        .then(function(captureResult) {
+        .then(function (captureResult) {
           console.log("Capture result:", captureResult);
 
           var captureState = captureResult.statusDetails.state;
@@ -846,7 +968,7 @@ var paymentHelper = (module.exports = {
             amount: paymentAction.amount,
           };
         })
-        .catch(function(err) {
+        .catch(function (err) {
           console.error("Capture error:", err);
           return {
             status: paymentConstants.FAILED,
@@ -924,7 +1046,7 @@ var paymentHelper = (module.exports = {
       };
 
       return amazonPayV2.cancelCharge(chargeId, cancelPayload)
-        .then(function(result) {
+        .then(function (result) {
           console.log("Cancel result:", result);
           return {
             status: paymentConstants.VOIDED,
@@ -932,7 +1054,7 @@ var paymentHelper = (module.exports = {
             awsTransactionId: chargeId
           };
         })
-        .catch(function(err) {
+        .catch(function (err) {
           console.error("Cancel error:", err);
           return {
             status: paymentConstants.FAILED,
@@ -1002,7 +1124,7 @@ var paymentHelper = (module.exports = {
       };
 
       return amazonPayV2.createRefund(refundPayload)
-        .then(function(refundResult) {
+        .then(function (refundResult) {
           console.log("Refund result:", refundResult);
 
           var refundState = refundResult.statusDetails.state;
@@ -1022,7 +1144,7 @@ var paymentHelper = (module.exports = {
             amount: paymentAction.amount,
           };
         })
-        .catch(function(err) {
+        .catch(function (err) {
           console.error("Refund error:", err);
           return {
             status: paymentConstants.FAILED,

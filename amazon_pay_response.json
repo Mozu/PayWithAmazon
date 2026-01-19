@@ -1,0 +1,115 @@
+{
+  "checkoutSessionId": "c5b89757-3d44-4e65-af24-45be5a413255",
+  "webCheckoutDetails": {
+    "checkoutReviewReturnUrl": "http://localhost:57521/checkout/1a36cc303ffbb40001f6d436000186ce?isAwsCheckout=true&view=amazon-checkout-v2",
+    "checkoutResultReturnUrl": null,
+    "amazonPayRedirectUrl": null,
+    "authorizeResultReturnUrl": null,
+    "signInReturnUrl": null,
+    "signInCancelUrl": null,
+    "checkoutErrorUrl": null,
+    "signInErrorUrl": null,
+    "amazonPayDeclineUrl": null,
+    "checkoutCancelUrl": null
+  },
+  "productType": "PayAndShip",
+  "paymentDetails": {
+    "paymentIntent": null,
+    "canHandlePendingAuthorization": false,
+    "chargeAmount": null,
+    "totalOrderAmount": null,
+    "softDescriptor": null,
+    "presentmentCurrency": null,
+    "allowOvercharge": null,
+    "extendExpiration": null
+  },
+  "chargePermissionType": "OneTime",
+  "orderType": null,
+  "recurringMetadata": null,
+  "paymentMethodOnFileMetadata": null,
+  "processorSpecifications": null,
+  "merchantDetails": null,
+  "merchantMetadata": {
+    "merchantReferenceId": null,
+    "merchantStoreName": null,
+    "noteToBuyer": null,
+    "customInformation": null
+  },
+  "supplementaryData": null,
+  "buyer": {
+    "name": "Test Account",
+    "email": "test_account@volusion.com",
+    "buyerId": "amzn1.account.AFRJ2PLHB5QLVV2IQX7IH4DJVZ4A",
+    "primeMembershipTypes": null,
+    "phoneNumber": "4259415758"
+  },
+  "billingAddress": {
+    "name": "Christopher C. Conn",
+    "addressLine1": "4996 Rockford Mountain Lane",
+    "addressLine2": null,
+    "addressLine3": null,
+    "city": "Appleton",
+    "county": null,
+    "district": null,
+    "stateOrRegion": "WI",
+    "postalCode": "54911",
+    "countryCode": "US",
+    "phoneNumber": "4259415758"
+  },
+  "paymentPreferences": [
+    {
+      "paymentDescriptor": "Visa ****1111 (Amazon Pay)"
+    }
+  ],
+  "statusDetails": {
+    "state": "Open",
+    "reasonCode": null,
+    "reasonDescription": null,
+    "lastUpdatedTimestamp": "20251212T135835Z"
+  },
+  "shippingAddress": {
+    "name": "Susie Smith",
+    "addressLine1": "10 Ditka Ave",
+    "addressLine2": "Suite 2500",
+    "addressLine3": null,
+    "city": "Chicago",
+    "county": null,
+    "district": null,
+    "stateOrRegion": "IL",
+    "postalCode": "60602",
+    "countryCode": "US",
+    "phoneNumber": "800-000-0000"
+  },
+  "platformId": null,
+  "chargePermissionId": null,
+  "chargeId": null,
+  "constraints": [
+    {
+      "constraintId": "ChargeAmountNotSet",
+      "description": "chargeAmount is not set."
+    },
+    {
+      "constraintId": "CheckoutResultReturnUrlNotSet",
+      "description": "checkoutResultReturnUrl is not set."
+    },
+    {
+      "constraintId": "PaymentIntentNotSet",
+      "description": "paymentIntent is not set."
+    }
+  ],
+  "creationTimestamp": "20251212T135831Z",
+  "expirationTimestamp": "20251213T135831Z",
+  "storeId": "amzn1.application-oa2-client.bdbc80217b994497ae9e383e935c83d1",
+  "providerMetadata": {
+    "providerReferenceId": null
+  },
+  "releaseEnvironment": "Sandbox",
+  "checkoutButtonText": null,
+  "deliverySpecifications": null,
+  "tokens": null,
+  "disbursementDetails": null,
+  "channelType": null,
+  "paymentProcessingMetaData": {
+    "paymentProcessingModel": "NATIVE"
+  }
+}

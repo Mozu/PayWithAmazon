@@ -64,6 +64,16 @@
       "id": "checkoutSession",
       "virtualPath": "./dist\\storefront.manifest.all.js",
       "actionId": "http.storefront.routes"
+    },
+    {
+      "id": "getCheckoutSessionData",
+      "virtualPath": "./dist\\storefront.manifest.all.js",
+      "actionId": "http.storefront.routes"
+    },
+    {
+      "id": "updateCheckoutSession",
+      "virtualPath": "./dist\\storefront.manifest.all.js",
+      "actionId": "http.storefront.routes"
     }
   ]
 }

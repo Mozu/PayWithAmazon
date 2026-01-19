@@ -7,14 +7,14 @@
 
 var amazonPayV2;
 try {
-  amazonPayV2 = require('../../amazon/amazonpaysdkv2')();
+  amazonPayV2 = require('../../amazon/v2/sdk')();
 } catch (e) {
   console.error("CRITICAL ERROR: Failed to initialize amazonpaysdkv2", e);
 }
 
 var paymentHelper = require('../../amazon/paymenthelper');
 
-module.exports = function(context, callback) {
+module.exports = function (context, callback) {
   console.debug('Amazon Pay Checkout Session endpoint called');
 
   // Only handle POST requests to this specific path
@@ -25,8 +25,8 @@ module.exports = function(context, callback) {
 
   // Check if this is the checkout session endpoint
   var url = context.request.url || '';
-  if (url.indexOf('/amazonpay/v2/checkoutsession') === -1 && url.indexOf('/checkoutsession') === -1) {
-    console.error('URL does not match /amazonpay/v2/checkoutsession or /checkoutsession, skipping');
+  if (url.indexOf('/amazonpay/v2/checkoutsession') === -1) {
+    console.error('URL does not match /amazonpay/v2/checkoutsession.');
     return callback();
   }
 
@@ -36,7 +36,7 @@ module.exports = function(context, callback) {
     console.log('context.request.body: ' + JSON.stringify(body));
 
     if (!body) {
-       return sendError(context, 400, 'Request body is empty');
+      return sendError(context, 400, 'Request body is empty');
     }
 
     var cartOrOrderId = body.cartOrOrderId;
@@ -54,7 +54,7 @@ module.exports = function(context, callback) {
     });
 
     // Get payment configuration
-    paymentHelper.getPaymentConfig(context).then(function(config) {
+    paymentHelper.getPaymentConfig(context).then(function (config) {
       // Configure Amazon Pay v2 SDK
       amazonPayV2.configure({
         publicKeyId: config.publicKeyId,
@@ -104,7 +104,7 @@ module.exports = function(context, callback) {
       context.response.body = response;
       context.response.end();
 
-    }).catch(function(error) {
+    }).catch(function (error) {
       console.error('Error generating checkout session:', error);
       sendError(context, 500, 'Failed to generate checkout session: ' + error.message);
     });

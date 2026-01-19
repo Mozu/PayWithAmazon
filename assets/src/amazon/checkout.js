@@ -3,7 +3,7 @@ var qs = require("querystring");
 var _ = require("underscore");
 var Guid = require("guid");
 var amazonPay = require("./amazonpaysdk")();
-var amazonPayV2 = require("./amazonpaysdkv2")();
+var amazonPayV2 = require("./v2/sdk")();
 var constants = require("mozu-node-sdk/constants");
 var paymentConstants = require("./constants");
 var orderClient = require("mozu-node-sdk/clients/commerce/order")();
@@ -219,10 +219,13 @@ function getFulfillmentInfoFromSession(checkoutSession, data, context) {
 
     var registeredUser = helper.getUserEmail(context);
     var phone = shippingAddress.phoneNumber || 'N/A';
+    
+    // Prefer buyer email from Amazon over registered user email
+    var email = (buyer && buyer.email) ? buyer.email : registeredUser;
 
     var contact = {
       fulfillmentContact: {
-        email: registeredUser || (buyer ? buyer.email : ''),
+        email: email,
         firstName: firstName,
         lastNameOrSurname: lastName,
         phoneNumbers: {
@@ -276,12 +279,11 @@ module.exports = function (context, callback) {
   // redirect to checkout page
   self.validateAndProcess = function () {
     var params = helper.parseUrlParams(self.ctx);
-
     if (
-      !helper.isAmazonCheckout(self.ctx) ||
-      (!helper.isCartPage(self.ctx) && params.view == "amazon-checkout")
+      !helper.isAmazonCheckout(self.ctx) || 
+      (!helper.isCartPage(self.ctx) && (params.view == "amazon-checkout" || params.view == "amazon-checkout-v2"))
     ) {
-      console.log(
+      console.error(
         "not amazon checkout or is requesting amazon-checkout view, ending request."
       );
       return self.cb();
@@ -289,39 +291,75 @@ module.exports = function (context, callback) {
     console.log("ApiContext", self.ctx.apiContext);
     var isMultishipEnabled = false;
 
+    // Check if this is V2 or V1 flow
+    var isV2Checkout = !!params.amazonCheckoutSessionId;
+    var cartId = params.cartId;
+
     //* Only for requests from cart page. Requests from checkout page are terminated above.
     return paymentHelper
       .getPaymentConfig(self.ctx)
       .then(function (config) {
         if (!config.isEnabled) return self.cb();
+        
+        // V2 flow: Skip token validation, proceed with checkout session ID
+        if (isV2Checkout) {
+          console.log("Amazon Pay V2 flow detected with checkout session:", params.amazonCheckoutSessionId);
+          if (cartId) {
+            // Validate user session
+            helper.validateUserSession(self.ctx);
+            
+            // Check multiship setting and create order/checkout accordingly
+            return getCheckoutSettings(self.ctx).then(function (siteSettings) {
+              if (!siteSettings.isMultishipEnabled) {
+                console.log("V2: Converting cart to order (single-ship)", cartId);
+                return createOrderFromCart(self.ctx.apiContext.userId, cartId);
+              } else {
+                console.log("V2: Converting cart to checkout (multi-ship)", cartId);
+                isMultishipEnabled = true;
+                return createCheckoutFromCart(self.ctx.apiContext.userId, cartId);
+              }
+            });
+          }
+          // No cartId, just continue to display the page
+          return self.cb();
+        }
+        
+        // V1 flow: Validate token and proceed
         amazonPay.configure(config);
         return amazonPay.validateToken(params.access_token);
       })
       .then(function (isTokenValid) {
-        console.log("Is Amazon token valid", isTokenValid);
-        var cartId = params.cartId;
+        // If this was V2 and returned early, isTokenValid will be undefined
+        if (isV2Checkout && isTokenValid === undefined) {
+          return; // Already handled in V2 flow above
+        }
+        
+        console.log("V1: Is Amazon token valid", isTokenValid);
         if (isTokenValid && cartId) {
           //validate user claims
           helper.validateUserSession(self.ctx);
           return getCheckoutSettings(self.ctx).then(function (siteSettings) {
             if (!siteSettings.isMultishipEnabled) {
-              console.log("Converting cart to order", cartId);
+              console.log("V1: Converting cart to order (single-ship)", cartId);
               return createOrderFromCart(self.ctx.apiContext.userId, cartId);
             } else {
-              console.log("Converting cart to checkout", cartId);
+              console.log("V1: Converting cart to checkout (multi-ship)", cartId);
               isMultishipEnabled = true;
               return createCheckoutFromCart(self.ctx.apiContext.userId, cartId);
             }
           });
         } else if (!isTokenValid) {
-          console.log("Amazon token and expried, redirecting to cart");
+          console.log("V1: Amazon token expired, redirecting to cart");
           self.ctx.response.redirect("/cart");
           return self.ctx.response.end();
         }
         return self.cb();
       })
       .then(function (order) {
-        console.log("Order created from cart", order.id);
+        // Skip if no order/checkout was created (V2 early return or V1 without cartId)
+        if (!order) return;
+        
+        console.error("Order/Checkout created from cart:", order.id);
         delete params.cartId;
         var queryString = "";
         Object.keys(params).forEach(function (key) {
@@ -329,12 +367,13 @@ module.exports = function (context, callback) {
           queryString += key + "=" + params[key];
         });
 
-        if (isMultishipEnabled)
+        if (isMultishipEnabled) {
+          console.log("Redirecting to multi-ship checkout:", order.id);
           self.ctx.response.redirect(
             "/checkoutV2/" + order.id + "?" + queryString
           );
-        else {
-          console.log("Redirecting to checkout:", order.id);
+        } else {
+          console.error("Redirecting to single-ship checkout:", order.id);
           self.ctx.response.redirect(
             "/checkout/" + order.id + "?" + queryString
           );
@@ -355,30 +394,53 @@ module.exports = function (context, callback) {
 
     if (!helper.isAmazonCheckout(self.ctx)) return self.cb();
 
-    paymentHelper
-      .getPaymentConfig(self.ctx)
-      .then(function (config) {
-        if (!config.isEnabled) return self.cb();
-        amazonPay.configure(config);
-        return amazonPay.validateToken(params.access_token);
-      })
-      .then(function (isTokenValid) {
-        console.log("is token valid", isTokenValid);
-        if (!isTokenValid) {
-          console.log("Amazon token and expried, redirecting to cart");
-          self.ctx.response.redirect("/cart");
-          self.ctx.response.end();
-        } else if (_.has(params, "view")) {
-          console.log("Changing view name to amazon-checkout");
-          self.ctx.response.viewName = params.view;
-          console.log("context response viewName", self.ctx.response.viewName);
-        } else self.ctx.response.viewData.awsCheckout = true;
-        return self.cb();
-      })
-      .catch(function (err) {
-        console.error(err);
-        return self.cb(err);
-      });
+    // Check if this is v2 checkout using amazonCheckoutSessionId parameter
+        var isV2Checkout = !!params.amazonCheckoutSessionId;
+        
+        if (isV2Checkout) {
+          console.log("V2 checkout detected, adding config to viewData");
+          
+          // For v2, skip token validation and proceed to view setup
+          // as for v2 is seession based not token based
+          // if session id is expred  user will get exception 
+          // Basically session expred after 24 hours of creation
+          if (_.has(params, "view")) {
+            console.log("Changing view name to", params.view);
+            self.ctx.response.viewName = params.view;
+            console.log("context response viewName", self.ctx.response.viewName);
+          }
+          return self.cb();
+        } else {
+            console.log("v1 context response viewName", self.ctx.response.viewName);
+            paymentHelper
+              .getPaymentConfig(self.ctx)
+              .then(function (config) {
+                if (!config.isEnabled) return self.cb();
+                amazonPay.configure(config);
+                
+                // V1 flow: validate token
+                return amazonPay.validateToken(params.access_token);
+              })
+              .then(function (isTokenValid) {
+                if (isTokenValid === undefined) return;
+                
+                console.log("is token valid", isTokenValid);
+                if (!isTokenValid) {
+                  console.log("Amazon token and expried, redirecting to cart");
+                  self.ctx.response.redirect("/cart");
+                  self.ctx.response.end();
+                } else if (_.has(params, "view")) {
+                  console.log("Changing view name to amazon-checkout");
+                  self.ctx.response.viewName = params.view;
+                  console.log("context response viewName", self.ctx.response.viewName);
+                } else self.ctx.response.viewData.awsCheckout = true;
+                return self.cb();
+              })
+              .catch(function (err) {
+                console.error(err);
+                return self.cb(err);
+              });
+            }
   };
 
   // Get full shipping information from amazon. need a valid token to get full shipping details from amazon
@@ -393,6 +455,34 @@ module.exports = function (context, callback) {
 
     var awsReferenceId = data.awsReferenceId;
     var addressConsentToken = data.addressAuthorizationToken;
+    var checkoutSessionId = data.checkoutSessionId || data.amazonCheckoutSessionId;
+
+    // V2 flow: use checkout session to get shipping address
+    if (checkoutSessionId && !awsReferenceId) {
+      console.log("Amazon Pay v2 detected, fetching checkout session for shipping:", checkoutSessionId);
+      return getCheckoutSessionDetails(self.ctx, checkoutSessionId)
+        .then(function (sessionResult) {
+          var shippingAddress = getFulfillmentInfoFromSession(
+            sessionResult.checkoutSession,
+            data,
+            self.ctx
+          );
+
+          // Don't override Amazon buyer email with Kibo billing email
+          // Amazon buyer email takes precedence
+          
+          self.ctx.request.params.fulfillmentInfo = shippingAddress;
+          console.log(
+            "fulfillmentInfo from Amazon Pay v2",
+            self.ctx.request.params.fulfillmentInfo
+          );
+          self.cb();
+        })
+        .catch(function (err) {
+          console.error("Error getting v2 fulfillment info:", err);
+          self.cb(err);
+        });
+    }
 
     if (!awsReferenceId && !addressConsentToken) {
       console.log("not an amazon order...");
@@ -402,6 +492,7 @@ module.exports = function (context, callback) {
       "Reading payment settings for " + paymentConstants.PAYMENTSETTINGID
     );
 
+    // V1 flow
     paymentHelper
       .getPaymentConfig(self.ctx)
       .then(function (config) {
@@ -434,7 +525,7 @@ module.exports = function (context, callback) {
         self.ctx.request.params.fulfillmentInfo = shippingAddress;
 
         console.log(
-          "fulfillmentInfo from AWS",
+          "fulfillmentInfo from AWS v1",
           self.ctx.request.params.fulfillmentInfo
         );
         self.cb();
@@ -457,6 +548,41 @@ module.exports = function (context, callback) {
 
     var awsReferenceId = data.awsReferenceId;
     var addressConsentToken = data.addressAuthorizationToken;
+    var checkoutSessionId = data.checkoutSessionId || data.amazonCheckoutSessionId;
+
+    // V2 flow: use checkout session to get shipping address
+    if (checkoutSessionId && !awsReferenceId) {
+      console.log("Amazon Pay v2 detected for destination, fetching checkout session:", checkoutSessionId);
+      return getCheckoutSessionDetails(self.ctx, checkoutSessionId)
+        .then(function (sessionResult) {
+          var fulfillmentInfo = getFulfillmentInfoFromSession(
+            sessionResult.checkoutSession,
+            data,
+            self.ctx
+          );
+
+          var destination = {
+            destinationContact: fulfillmentInfo.fulfillmentContact,
+            data: fulfillmentInfo.data,
+          };
+
+          if (destination.destinationContact)
+            destination.destinationContact.email =
+              destination.destinationContact.email || fulfillmentInfo.fulfillmentContact.email;
+
+          if (id) destination.id = id;
+
+          console.log(destination);
+
+          self.ctx.request.params.destination = destination;
+          console.log("Destination from Amazon Pay v2", self.ctx.request.params.destination);
+          self.cb();
+        })
+        .catch(function (err) {
+          console.error("Error getting v2 destination info:", err);
+          self.cb(err);
+        });
+    }
 
     if (!awsReferenceId && !addressConsentToken) {
       console.log("not an amazon order...");
@@ -466,6 +592,7 @@ module.exports = function (context, callback) {
       "Reading payment settings for " + paymentConstants.PAYMENTSETTINGID
     );
 
+    // V1 flow
     paymentHelper
       .getPaymentConfig(self.ctx)
       .then(function (config) {
@@ -716,12 +843,12 @@ module.exports = function (context, callback) {
       declineCapture = self.ctx.configuration.payment.declineCapture === true;
 
     try {
-      paymentHelper
+      paymentHelper 
         .getPaymentConfig(self.ctx)
         .then(function (config) {
           // Detect if this is Amazon Pay v2 (checkout session) or v1 (order reference)
-          var isV2 = paymentHelper.isCheckoutSession(payment);
-          console.log("Amazon Pay version:", isV2 ? "v2 (Checkout Session)" : "v1 (Order Reference)");
+          var isAmazonpayV2 = paymentHelper.isAmazonpayV2(payment);
+          console.log("Amazon Pay version:", isAmazonpayV2 ? "v2 (Checkout Session)" : "v1 (Order Reference)");
 
           switch (paymentAction.actionName) {
             case "CreatePayment":
@@ -730,7 +857,7 @@ module.exports = function (context, callback) {
                 paymentAction.externalTransactionId
               );
               // v2 doesn't need createNewPayment - session already created by frontend
-              if (isV2) {
+              if (isAmazonpayV2) {
                 return {
                   status: paymentConstants.NEW,
                   amount: paymentAction.amount
@@ -748,7 +875,7 @@ module.exports = function (context, callback) {
                 payment.externalTransactionId
               );
               console.log("Void Payment", payment.id);
-              if (isV2) {
+              if (isAmazonpayV2) {
                 return paymentHelper.voidPaymentV2(
                   self.ctx,
                   config,
@@ -767,7 +894,10 @@ module.exports = function (context, callback) {
                 "Authorizing payment for ",
                 payment.externalTransactionId
               );
-              if (isV2) {
+              if (isAmazonpayV2) {
+                // V2 flow: Frontend calls updateCheckoutSession, buyer redirects to Amazon,
+                // buyer returns, then backend calls AuthorizePayment to complete
+                console.log("V2: Completing authorization after buyer return from Amazon");
                 return paymentHelper.confirmAndAuthorizeV2(
                   self.ctx,
                   config,
@@ -786,7 +916,7 @@ module.exports = function (context, callback) {
                 "Capture payment for ",
                 payment.externalTransactionId
               );
-              if (isV2) {
+              if (isAmazonpayV2) {
                 return paymentHelper.captureAmountV2(
                   self.ctx,
                   config,
@@ -805,7 +935,7 @@ module.exports = function (context, callback) {
                 "Crediting payment for ",
                 payment.externalTransactionId
               );
-              if (isV2) {
+              if (isAmazonpayV2) {
                 return paymentHelper.creditPaymentV2(
                   self.ctx,
                   config,
@@ -825,7 +955,7 @@ module.exports = function (context, callback) {
                 payment.externalTransactionId
               );
               // Decline uses same logic as void
-              if (isV2) {
+              if (isAmazonpayV2) {
                 return paymentHelper.voidPaymentV2(
                   self.ctx,
                   config,
@@ -882,13 +1012,37 @@ module.exports = function (context, callback) {
     var mzOrder = self.ctx.get.order();
     if (mzOrder.status != "Completed") return self.cb();
     console.log("Order", mzOrder);
-    //validate it is amazon payment
-    var payment = _.find(mzOrder.payments, function (payment) {
+    
+    var payments = mzOrder.payments;
+    
+    // Check if any payment is v2 - if so, skip close order (v2 doesn't need explicit close)
+    var paymentToCheckV2 = _.find(payments, function (payment) {
+      var paymentType = (payment.paymentType || '').toLowerCase();
+      var status = (payment.status || '').toLowerCase();
+      return (
+        paymentType === paymentConstants.PAYMENTSETTINGID.toLowerCase() &&
+        status !== "declined" &&
+        status !== "voided"
+      );
+    });
+    
+    if (paymentToCheckV2) {
+      var isV2 = paymentHelper.isAmazonpayV2(paymentToCheckV2);
+      console.error("Checking payment for v2:", paymentToCheckV2.id, "Is v2:", isV2);
+      if (isV2) {
+        console.error("V2 payment detected, skipping close order (not needed for v2)");
+        return self.cb();
+      }
+    }
+    
+    //validate it is amazon payment (v1 only)
+    var payment = _.find(payments, function (payment) {
       return (
         payment.paymentType == paymentConstants.PAYMENTSETTINGID &&
         payment.status == "Collected"
       );
     });
+
     console.log("Amazon payment payment", payment);
 
     if (!payment) return self.cb();

@@ -19,6 +19,12 @@ module.exports = function (grunt) {
             'continuous': {
                 'options': { 'force': true },
                 'src': '<%= jshint.normal %>'
+            },
+            'options': {
+                esversion: 9,
+                asi: true,
+                '-W033': true,
+                '-W018': true
             }
         },
         webpack: {

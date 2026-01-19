@@ -22,5 +22,13 @@ module.exports = {
   'checkoutSession': {
     actionName: 'http.storefront.routes',
     customFunction: require('./domains/storefront/amazonCheckoutSession')
+  },
+  'getCheckoutSessionData': {
+    actionName: 'http.storefront.routes',
+    customFunction: require('./domains/storefront/amazonGetCheckoutSessionData')
+  },
+  'updateCheckoutSession': {
+    actionName: 'http.storefront.routes',
+    customFunction: require('./domains/storefront/amazonUpdateCheckoutSession')
   }
 };
