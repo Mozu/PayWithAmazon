@@ -400,16 +400,27 @@ module.exports = function (context, callback) {
         if (isV2Checkout) {
           console.log("V2 checkout detected, adding config to viewData");
           
-          // For v2, skip token validation and proceed to view setup
-          // as for v2 is seession based not token based
-          // if session id is expred  user will get exception 
-          // Basically session expred after 24 hours of creation
-          if (_.has(params, "view")) {
-            console.log("Changing view name to", params.view);
-            self.ctx.response.viewName = params.view;
-            console.log("context response viewName", self.ctx.response.viewName);
-          }
-          return self.cb();
+          // Check if Amazon Pay is enabled before proceeding
+          return paymentHelper
+            .getPaymentConfig(self.ctx)
+            .then(function (config) {
+              if (!config.isEnabled) return self.cb();
+              
+              // For v2, skip token validation and proceed to view setup
+              // as for v2 is seession based not token based
+              // if session id is expred  user will get exception 
+              // Basically session expred after 24 hours of creation
+              if (_.has(params, "view")) {
+                console.log("Changing view name to", params.view);
+                self.ctx.response.viewName = params.view;
+                console.log("context response viewName", self.ctx.response.viewName);
+              }
+              return self.cb();
+            })
+            .catch(function (err) {
+              console.error("Error getting v2 payment config:", err);
+              return self.cb(err);
+            });
         } else {
             console.log("v1 context response viewName", self.ctx.response.viewName);
             paymentHelper
@@ -831,7 +842,9 @@ module.exports = function (context, callback) {
     console.log("Payment Action:", paymentAction.actionName);
     //console.log("Payment", payment);
     console.log("apiContext", self.ctx.apiContext);
-    if (payment.paymentType !== paymentConstants.PAYMENTSETTINGID)
+    // Accept both v2 (PayWithAmazonV2) and legacy v1 (PayWithAmazon) payment types
+    if (payment.paymentType !== paymentConstants.PAYMENTSETTINGID &&
+        !paymentHelper.isLegacyV1Payment(payment))
       return self.cb();
 
     if (!payment.externalTransactionId)
@@ -875,15 +888,8 @@ module.exports = function (context, callback) {
                 payment.externalTransactionId
               );
               console.log("Void Payment", payment.id);
-              if (isAmazonpayV2) {
-                return paymentHelper.voidPaymentV2(
-                  self.ctx,
-                  config,
-                  paymentAction,
-                  payment
-                );
-              }
-              return paymentHelper.voidPayment(
+              // Always use v2 API for void (handles both v1 legacy and v2 orders)
+              return paymentHelper.voidPaymentV2(
                 self.ctx,
                 config,
                 paymentAction,
@@ -916,15 +922,8 @@ module.exports = function (context, callback) {
                 "Capture payment for ",
                 payment.externalTransactionId
               );
-              if (isAmazonpayV2) {
-                return paymentHelper.captureAmountV2(
-                  self.ctx,
-                  config,
-                  paymentAction,
-                  payment
-                );
-              }
-              return paymentHelper.captureAmount(
+              // Always use v2 API for capture (handles both v1 legacy and v2 orders)
+              return paymentHelper.captureAmountV2(
                 self.ctx,
                 config,
                 paymentAction,
@@ -935,15 +934,8 @@ module.exports = function (context, callback) {
                 "Crediting payment for ",
                 payment.externalTransactionId
               );
-              if (isAmazonpayV2) {
-                return paymentHelper.creditPaymentV2(
-                  self.ctx,
-                  config,
-                  paymentAction,
-                  payment
-                );
-              }
-              return paymentHelper.creditPayment(
+              // Always use v2 API for refund (handles both v1 legacy and v2 orders)
+              return paymentHelper.creditPaymentV2(
                 self.ctx,
                 config,
                 paymentAction,
@@ -954,16 +946,8 @@ module.exports = function (context, callback) {
                 "Decline payment for ",
                 payment.externalTransactionId
               );
-              // Decline uses same logic as void
-              if (isAmazonpayV2) {
-                return paymentHelper.voidPaymentV2(
-                  self.ctx,
-                  config,
-                  paymentAction,
-                  payment
-                );
-              }
-              return paymentHelper.declinePayment(
+              // Always use v2 API for decline (handles both v1 legacy and v2 orders)
+              return paymentHelper.voidPaymentV2(
                 self.ctx,
                 config,
                 paymentAction,
@@ -1012,64 +996,27 @@ module.exports = function (context, callback) {
     var mzOrder = self.ctx.get.order();
     if (mzOrder.status != "Completed") return self.cb();
     console.log("Order", mzOrder);
-    
+
     var payments = mzOrder.payments;
-    
-    // Check if any payment is v2 - if so, skip close order (v2 doesn't need explicit close)
-    var paymentToCheckV2 = _.find(payments, function (payment) {
-      var paymentType = (payment.paymentType || '').toLowerCase();
-      var status = (payment.status || '').toLowerCase();
+
+    // Find the Amazon payment (v1 or v2)
+    var payment = _.find(payments, function (p) {
+      var paymentType = (p.paymentType || '').toLowerCase();
+      var status = (p.status || '').toLowerCase();
       return (
-        paymentType === paymentConstants.PAYMENTSETTINGID.toLowerCase() &&
+        (paymentType === paymentConstants.PAYMENTSETTINGID.toLowerCase() ||
+         paymentType === 'paywithamazon') &&
         status !== "declined" &&
         status !== "voided"
       );
     });
-    
-    if (paymentToCheckV2) {
-      var isV2 = paymentHelper.isAmazonpayV2(paymentToCheckV2);
-      console.error("Checking payment for v2:", paymentToCheckV2.id, "Is v2:", isV2);
-      if (isV2) {
-        console.error("V2 payment detected, skipping close order (not needed for v2)");
-        return self.cb();
-      }
-    }
-    
-    //validate it is amazon payment (v1 only)
-    var payment = _.find(payments, function (payment) {
-      return (
-        payment.paymentType == paymentConstants.PAYMENTSETTINGID &&
-        payment.status == "Collected"
-      );
-    });
-
-    console.log("Amazon payment payment", payment);
 
     if (!payment) return self.cb();
-    paymentHelper
-      .getPaymentConfig(self.ctx)
-      .then(function (config) {
-        amazonPay.configure(config);
-        return amazonPay.getOrderDetails(payment.externalTransactionId);
-      })
-      .then(function (awsOrder) {
-        var state =
-          awsOrder.GetOrderReferenceDetailsResponse
-            .GetOrderReferenceDetailsResult.OrderReferenceDetails
-            .OrderReferenceStatus.State;
-        console.log("Aws Order status", state);
-        if (state != "Open") return;
 
-        return amazonPay.closeOrder(payment.externalTransactionId).then(
-          function (closeResult) {
-            console.log("Close AWS Oder result", closeResult);
-          },
-          function (err) {
-            console.log("Close Aws order error", err);
-          }
-        );
-      })
-      .then(self.cb, self.cb);
+    // V2 and legacy V1 orders handled via v2 API don't need explicit close
+    // Amazon automatically manages charge permission lifecycle
+    console.log("Skipping explicit close order - managed by Amazon Pay v2 API");
+    return self.cb();
   };
 
   self.setError = function (error) {

@@ -677,8 +677,33 @@ var paymentHelper = (module.exports = {
     // Check if payment type is PayWithAmazonV2 (case-insensitive)
     var paymentType = payment.paymentType || '';
     var isV2 = paymentType.toLowerCase() === constants.PAYMENTSETTINGID.toLocaleLowerCase();
-   
+
     return isV2;
+  },
+
+  /**
+   * Detect if this is a legacy v1 (MWS/Order Reference) payment
+   */
+  isLegacyV1Payment: function (payment) {
+    var paymentType = (payment.paymentType || '').toLowerCase();
+    return paymentType === 'paywithamazon';
+  },
+
+  /**
+   * Convert v1 AmazonAuthorizationId to v2-compatible chargeId.
+   * Per Amazon migration guide: change 21st character from 'A' to 'C'.
+   * Example: S01-1234567-1234567-A012345 → S01-1234567-1234567-C012345
+   */
+  convertV1AuthIdToChargeId: function (amazonAuthorizationId) {
+    console.error("Converting v1 AuthorizationId to v2 ChargeId", amazonAuthorizationId);
+    if (!amazonAuthorizationId || amazonAuthorizationId.length < 21) {
+      return amazonAuthorizationId;
+    }
+    // Only convert if character at position 20 is 'A' (authorization marker)
+    if (amazonAuthorizationId.charAt(20) === 'A') {
+      return amazonAuthorizationId.substring(0, 20) + 'C' + amazonAuthorizationId.substring(21);
+    }
+    return amazonAuthorizationId;
   },
 
   /**
@@ -938,6 +963,11 @@ var paymentHelper = (module.exports = {
 
       var chargeId = authorizedInteraction.gatewayTransactionId;
 
+      // Convert v1 authorization ID to v2 charge ID if needed
+      // V1 auth IDs have 'A' at position 20, v2 charge IDs have 'C'
+      chargeId = self.convertV1AuthIdToChargeId(chargeId);
+      console.log("Capture charge ID (after v1 conversion if applicable):", chargeId);
+
       // Create capture payload
       var capturePayload = {
         captureAmount: {
@@ -1041,6 +1071,11 @@ var paymentHelper = (module.exports = {
       });
 
       var chargeId = authorizedInteraction.gatewayTransactionId;
+
+      // Convert v1 authorization ID to v2 charge ID if needed
+      chargeId = self.convertV1AuthIdToChargeId(chargeId);
+      console.log("Void charge ID (after v1 conversion if applicable):", chargeId);
+
       var cancelPayload = {
         cancellationReason: paymentAction.reason || "Customer requested cancellation"
       };
@@ -1114,6 +1149,13 @@ var paymentHelper = (module.exports = {
       });
 
       var chargeId = capturedInteraction.gatewayTransactionId;
+
+      // V1 capture IDs (AmazonCaptureId) already have 'C' at position 20,
+      // so convertV1AuthIdToChargeId is a no-op for them.
+      // But if an auth ID was stored instead, this converts it properly.
+      chargeId = self.convertV1AuthIdToChargeId(chargeId);
+      console.log("Refund charge ID (after v1 conversion if applicable):", chargeId);
+
       var refundPayload = {
         chargeId: chargeId,
         refundAmount: {
