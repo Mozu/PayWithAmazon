@@ -11,7 +11,10 @@
       "Bash(node:*)",
       "Bash(grunt webpack:all:*)",
       "Bash(del test_signature.js)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(find c:BhushanProjectsPayWithAmazonnode_modulesmozu-node-sdk -path *clients* -name *payment*)",
+      "Bash(find c:BhushanProjectsPayWithAmazonnode_modules@amazonpay -name *.md -o -name README*)",
+      "Bash(xargs grep:*)"
     ]
   }
 }

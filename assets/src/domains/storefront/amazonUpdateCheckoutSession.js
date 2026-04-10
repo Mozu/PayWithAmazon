@@ -41,9 +41,26 @@ module.exports = function (context, callback) {
 
     var checkoutSessionId = body.checkoutSessionId;
 
-    // Remove checkoutSessionId from payload
     var payload = Object.assign({}, body);
+    // Remove internal fields from payload before sending to Amazon
     delete payload.checkoutSessionId;
+    delete payload.orderId;
+    delete payload.paymentId;
+
+    var orderId = body.orderId;
+    var paymentId = body.paymentId;
+
+    // Store tenantId, orderId, paymentId in merchantMetadata for IPN lookups
+    if (context.apiContext && context.apiContext.tenantId) {
+      payload.merchantMetadata = payload.merchantMetadata || {};
+      var customInfo = {
+        tenantId: context.apiContext.tenantId,
+        siteId: context.apiContext.siteId
+      };
+      if (orderId) customInfo.orderId = orderId;
+      if (paymentId) customInfo.paymentId = paymentId;
+      payload.merchantMetadata.customInformation = JSON.stringify(customInfo);
+    }
 
     if (!checkoutSessionId) {
       return sendError(context, 400, 'checkoutSessionId is required');
