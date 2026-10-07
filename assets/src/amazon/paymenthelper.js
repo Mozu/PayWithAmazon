@@ -74,7 +74,7 @@ var paymentHelper = (module.exports = {
       { fullyQualifiedName: helper.getPaymentFQN(context) }
     );
 
-    if (!pwaSettings || !pwaSettings.IsEnabled) callback();
+    if (!pwaSettings || !pwaSettings.IsEnabled) return callback();
 
     var config = self.getConfig(context, pwaSettings);
 
