@@ -738,17 +738,25 @@ var paymentHelper = (module.exports = {
   stampOrderCorrelation: function (chargePermissionId, context, payment, existingMerchantMetadata) {
     try {
       var apiContext = (context && context.apiContext) || {};
-      if (!apiContext.tenantId || !payment || !payment.orderId) {
-        console.error(
-          "[ORDER CORRELATION] Skipping charge permission metadata stamp — missing tenantId or orderId",
-          { tenantId: apiContext.tenantId, orderId: payment && payment.orderId }
+
+      // tenantId and siteId are coerced to numbers: the IPN's correlation schema
+      // requires numeric tenant/site, and a stringified id must not be the reason a
+      // refund is dropped. All three of tenantId, siteId and orderId are required -
+      // a partial blob is rejected by that schema anyway, so writing one only hides
+      // the problem behind a field that looks populated.
+      var tenantId = Number(apiContext.tenantId);
+      var siteId = Number(apiContext.siteId);
+      if (!tenantId || !siteId || !payment || !payment.orderId) {
+        console.warn(
+          "[ORDER CORRELATION] Skipping charge permission metadata stamp — missing tenantId, siteId or orderId",
+          { tenantId: apiContext.tenantId, siteId: apiContext.siteId, orderId: payment && payment.orderId }
         );
         return Promise.resolve();
       }
 
       var customInfo = {
-        tenantId: apiContext.tenantId,
-        siteId: apiContext.siteId,
+        tenantId: tenantId,
+        siteId: siteId,
         orderId: payment.orderId
       };
       if (payment.id) customInfo.paymentId = payment.id;
@@ -781,11 +789,10 @@ var paymentHelper = (module.exports = {
         customInformation: JSON.stringify(customInfo)
       });
 
-      console.error(
-        "[ORDER CORRELATION] Stamping charge permission metadata:",
-        chargePermissionId,
-        JSON.stringify(merchantMetadata)
-      );
+      // Deliberately not logging merchantMetadata: it carries whatever else the
+      // theme put there (merchantReferenceId, merchantStoreName, …), which is not
+      // ours to dump into the application log.
+      console.log("[ORDER CORRELATION] Stamping charge permission metadata:", chargePermissionId);
 
       return amazonPayV2
         .updateChargePermission(chargePermissionId, { merchantMetadata: merchantMetadata })
@@ -793,7 +800,7 @@ var paymentHelper = (module.exports = {
           console.log("[ORDER CORRELATION] Charge permission metadata stamped:", result && result.statusDetails);
         })
         .catch(function (err) {
-          console.error("[ORDER CORRELATION] Failed to stamp charge permission metadata (non-fatal):", err);
+          console.warn("[ORDER CORRELATION] Failed to stamp charge permission metadata (non-fatal):", err);
         });
     } catch (e) {
       console.error("[ORDER CORRELATION] Exception stamping charge permission metadata (non-fatal):", e);
