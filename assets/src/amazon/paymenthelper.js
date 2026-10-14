@@ -74,7 +74,7 @@ var paymentHelper = (module.exports = {
       { fullyQualifiedName: helper.getPaymentFQN(context) }
     );
 
-    if (!pwaSettings || !pwaSettings.IsEnabled) callback();
+    if (!pwaSettings || !pwaSettings.IsEnabled) return callback();
 
     var config = self.getConfig(context, pwaSettings);
 
@@ -707,12 +707,116 @@ var paymentHelper = (module.exports = {
   },
 
   /**
+   * Stamp trusted order-correlation metadata (`merchantMetadata.customInformation`)
+   * onto an Amazon Pay v2 charge permission.
+   *
+   * Why: the refund IPN (kibo-paywithamazon-ipn) resolves a refund back to its
+   * Kibo order by reading this field off the charge permission. Today it is only
+   * written by the storefront route (`amazonUpdateCheckoutSession.js`) from the
+   * browser-supplied request body — so a client that doesn't use that route, or
+   * a theme that omits orderId, leaves the IPN unable to resolve the order and
+   * the refund is dropped. This runs server-side on AuthorizePayment with values
+   * taken from the payment and apiContext, which are trusted.
+   *
+   * Non-fatal by design: a failure here must never fail the authorization — it
+   * is logged and swallowed. The IPN's own idempotency/target-verification
+   * checks protect against a stale or missing value.
+   *
+   * `existingMerchantMetadata` — the checkout session's merchantMetadata, which
+   * Amazon propagates to the charge permission — is merged in. This is a PATCH,
+   * so sending only customInformation would drop any other keys a theme set
+   * (merchantReferenceId, merchantStoreName, …). The session is already fetched
+   * by the caller, so this costs no extra Amazon call.
+   *
+   * Skips the Amazon call entirely when the existing customInformation already
+   * matches what we would write (tenant/site/orderId, and paymentId when
+   * present) — the storefront already stamped the same trusted values, so the
+   * common storefront case costs nothing. The comparison is against the trusted
+   * values, so a shopper-supplied (tampered) orderId/paymentId never matches and
+   * is always overwritten.
+   */
+  stampOrderCorrelation: function (chargePermissionId, context, payment, existingMerchantMetadata) {
+    try {
+      var apiContext = (context && context.apiContext) || {};
+
+      // tenantId and siteId are coerced to numbers: the IPN's correlation schema
+      // requires numeric tenant/site, and a stringified id must not be the reason a
+      // refund is dropped. All three of tenantId, siteId and orderId are required -
+      // a partial blob is rejected by that schema anyway, so writing one only hides
+      // the problem behind a field that looks populated.
+      var tenantId = Number(apiContext.tenantId);
+      var siteId = Number(apiContext.siteId);
+      if (!tenantId || !siteId || !payment || !payment.orderId) {
+        console.warn(
+          "[ORDER CORRELATION] Skipping charge permission metadata stamp — missing tenantId, siteId or orderId",
+          { tenantId: apiContext.tenantId, siteId: apiContext.siteId, orderId: payment && payment.orderId }
+        );
+        return Promise.resolve();
+      }
+
+      var customInfo = {
+        tenantId: tenantId,
+        siteId: siteId,
+        orderId: payment.orderId
+      };
+      if (payment.id) customInfo.paymentId = payment.id;
+
+      // Skip the Amazon call when the existing metadata already matches what we
+      // would write — the storefront stamped the same trusted values. Checked
+      // against the trusted values, so a tampered orderId/paymentId never
+      // matches. A missing paymentId is safe to skip (the IPN resolves it from
+      // the order); a present-but-different one is not.
+      try {
+        var existing = JSON.parse((existingMerchantMetadata && existingMerchantMetadata.customInformation) || '{}');
+        var correlationMatches =
+          String(existing.tenantId) === String(customInfo.tenantId) &&
+          String(existing.siteId) === String(customInfo.siteId) &&
+          existing.orderId === customInfo.orderId &&
+          (!existing.paymentId || existing.paymentId === customInfo.paymentId);
+        if (correlationMatches) {
+          console.log(
+            "[ORDER CORRELATION] Charge permission already carries matching correlation — skipping update call"
+          );
+          return Promise.resolve();
+        }
+      } catch (e) {
+        // Existing value is unparseable — fall through and overwrite it.
+      }
+
+      // Merge, don't replace: a PATCH of merchantMetadata with only
+      // customInformation would drop the theme's other keys.
+      var merchantMetadata = Object.assign({}, existingMerchantMetadata || {}, {
+        customInformation: JSON.stringify(customInfo)
+      });
+
+      // Deliberately not logging merchantMetadata: it carries whatever else the
+      // theme put there (merchantReferenceId, merchantStoreName, …), which is not
+      // ours to dump into the application log.
+      console.log("[ORDER CORRELATION] Stamping charge permission metadata:", chargePermissionId);
+
+      return amazonPayV2
+        .updateChargePermission(chargePermissionId, { merchantMetadata: merchantMetadata })
+        .then(function (result) {
+          console.log("[ORDER CORRELATION] Charge permission metadata stamped:", result && result.statusDetails);
+        })
+        .catch(function (err) {
+          console.warn("[ORDER CORRELATION] Failed to stamp charge permission metadata (non-fatal):", err);
+        });
+    } catch (e) {
+      console.error("[ORDER CORRELATION] Exception stamping charge permission metadata (non-fatal):", e);
+      return Promise.resolve();
+    }
+  },
+
+  /**
    * Complete checkout session and create charge (v2)
    * Replaces confirmAndAuthorize for v2
    */
   confirmAndAuthorizeV2: function (context, config, paymentAction, payment) {
     var self = this;
     var checkoutSessionId = payment.externalTransactionId;
+    // Captured from the session below so the metadata stamp can merge into it.
+    var existingMerchantMetadata = {};
 
     console.log("Amazon Pay v2: Complete checkout session and create charge", checkoutSessionId);
 
@@ -736,6 +840,10 @@ var paymentHelper = (module.exports = {
       // First, get the session to check its current state
       return amazonPayV2.getCheckoutSession(checkoutSessionId)
         .then(function(currentSession) {
+          // Remember any merchantMetadata the theme already set on the session
+          // (Amazon propagates it to the charge permission) so the stamp below
+          // can merge into it rather than drop it.
+          existingMerchantMetadata = (currentSession && currentSession.merchantMetadata) || {};
           
           // Check if session already has a charge (preventing duplicate charges)
           if (currentSession.chargeId) {
@@ -778,6 +886,19 @@ var paymentHelper = (module.exports = {
           console.error("[COMPLETE] Complete payload:", JSON.stringify(completePayload));
           
           return amazonPayV2.completeCheckoutSession(checkoutSessionId, completePayload);
+        })
+        .then(function (completedSession) {
+          // Stamp trusted order-correlation metadata onto the charge permission
+          // (non-fatal — see stampOrderCorrelation). Placed here so both the
+          // "charge already exists" early return above and the create-charge
+          // path below carry it.
+          var completedChargePermissionId = completedSession && completedSession.chargePermissionId;
+          if (!completedChargePermissionId) return completedSession;
+          return paymentHelper
+            .stampOrderCorrelation(completedChargePermissionId, context, payment, existingMerchantMetadata)
+            .then(function () {
+              return completedSession;
+            });
         })
         .then(function (completedSession) {
            console.error("[COMPLETE] Checkout session completed:", JSON.stringify(completedSession));
@@ -1118,11 +1239,14 @@ var paymentHelper = (module.exports = {
       // Manual credit handling
       if (paymentAction.manualGatewayInteraction) {
         console.log("Manual credit...dont send to amazon");
+        var manual = paymentAction.manualGatewayInteraction;
+        // isDeclined: Amazon declined a refund that was CreditPending (reported by the refund IPN service).
         return Promise.resolve({
           amount: paymentAction.amount,
-          gatewayResponseCode: "OK",
-          status: paymentConstants.CREDITED,
-          awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId,
+          status: manual.isDeclined ? paymentConstants.FAILED : paymentConstants.CREDITED,
+          responseCode: manual.gatewayResponseCode || (manual.isDeclined ? "DECLINED" : "OK"),
+          responseText: manual.gatewayResponseText,
+          awsTransactionId: manual.gatewayTransactionId || manual.gatewayInteractionId,
         });
       }
 
