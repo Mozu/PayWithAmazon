@@ -1239,11 +1239,14 @@ var paymentHelper = (module.exports = {
       // Manual credit handling
       if (paymentAction.manualGatewayInteraction) {
         console.log("Manual credit...dont send to amazon");
+        var manual = paymentAction.manualGatewayInteraction;
+        // isDeclined: Amazon declined a refund that was CreditPending (reported by the refund IPN service).
         return Promise.resolve({
           amount: paymentAction.amount,
-          gatewayResponseCode: "OK",
-          status: paymentConstants.CREDITED,
-          awsTransactionId: paymentAction.manualGatewayInteraction.gatewayInteractionId,
+          status: manual.isDeclined ? paymentConstants.FAILED : paymentConstants.CREDITED,
+          responseCode: manual.gatewayResponseCode || (manual.isDeclined ? "DECLINED" : "OK"),
+          responseText: manual.gatewayResponseText,
+          awsTransactionId: manual.gatewayTransactionId || manual.gatewayInteractionId,
         });
       }
 
