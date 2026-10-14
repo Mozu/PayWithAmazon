@@ -136,6 +136,36 @@ describe('amazonUpdateCheckoutSession — order correlation', function () {
     });
   });
 
+  it('drops a browser-supplied customInformation when the body has no orderId, keeping other theme keys', function () {
+    var loaded = loadRoute();
+    var body = storefrontBody({
+      merchantMetadata: { merchantReferenceId: 'ref-1', customInformation: '{"tenantId":1,"orderId":"tampered"}' }
+    });
+    var context = contextFor(body, { tenantId: '100046', siteId: '100072' });
+
+    return invoke(loaded.route, context).then(function () {
+      var metadata = loaded.updates[0].payload.merchantMetadata;
+      assert.equal(metadata.customInformation, undefined);
+      assert.equal(metadata.merchantReferenceId, 'ref-1');
+      assert.ok(body.merchantMetadata.customInformation, 'the request body itself is not mutated');
+    });
+  });
+
+  it('overwrites a browser-supplied customInformation with the trusted value', function () {
+    var loaded = loadRoute();
+    var body = storefrontBody({
+      orderId: 'order-1',
+      merchantMetadata: { merchantStoreName: 'Store', customInformation: '{"orderId":"tampered"}' }
+    });
+    var context = contextFor(body, { tenantId: '100046', siteId: '100072' });
+
+    return invoke(loaded.route, context).then(function () {
+      var metadata = loaded.updates[0].payload.merchantMetadata;
+      assert.strictEqual(JSON.parse(metadata.customInformation).orderId, 'order-1');
+      assert.equal(metadata.merchantStoreName, 'Store');
+    });
+  });
+
   it('keeps internal fields out of the payload sent to Amazon', function () {
     var loaded = loadRoute();
     var context = contextFor(storefrontBody({ orderId: 'order-1', paymentId: 'payment-1' }), {

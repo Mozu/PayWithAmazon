@@ -62,18 +62,24 @@ module.exports = function (context, callback) {
     var apiContext = context.apiContext || {};
     var tenantId = Number(apiContext.tenantId);
     var siteId = Number(apiContext.siteId);
+    // Copied so neither branch mutates the request body's merchantMetadata.
+    payload.merchantMetadata = Object.assign({}, payload.merchantMetadata);
     if (tenantId && siteId && orderId) {
-      payload.merchantMetadata = payload.merchantMetadata || {};
       // Emitted as numbers: the IPN coerces either way, but pinning the type here
       // keeps the stored value canonical.
       var customInfo = { tenantId: tenantId, siteId: siteId, orderId: orderId };
       if (paymentId) customInfo.paymentId = paymentId;
       payload.merchantMetadata.customInformation = JSON.stringify(customInfo);
     } else {
+      // Never forward a browser-supplied correlation blob; the theme's other metadata keys stay.
+      delete payload.merchantMetadata.customInformation;
       console.warn(
         '[ORDER CORRELATION] Not writing customInformation - missing tenantId, siteId or orderId',
         { tenantId: apiContext.tenantId, siteId: apiContext.siteId, hasOrderId: !!orderId }
       );
+    }
+    if (Object.keys(payload.merchantMetadata).length === 0) {
+      delete payload.merchantMetadata;
     }
 
     if (!checkoutSessionId) {
