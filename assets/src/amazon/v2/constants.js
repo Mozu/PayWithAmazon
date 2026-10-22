@@ -51,6 +51,7 @@ module.exports = {
     // API Paths
     PATHS: {
         CHECKOUT_SESSIONS: '/checkoutSessions',
+        CHARGE_PERMISSIONS: '/chargePermissions',
         CHARGES: '/charges',
         REFUNDS: '/refunds',
         COMPLETE: '/complete',
