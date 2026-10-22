@@ -79,6 +79,24 @@ class AmazonPayV2 {
     return response;
   }
 
+  async updateChargePermission(chargePermissionId, payload) {
+    constants.assertRequired(this.config, 'Amazon Pay not configured');
+    constants.assertRequired(chargePermissionId, 'Charge permission ID is required');
+    constants.assertRequired(payload, 'Update payload is required');
+    console.log('[AmazonPayV2.updateChargePermission] Called for charge permission:', chargePermissionId);
+
+    const requestOptions = {
+      method: constants.METHODS.PATCH,
+      path: constants.PATHS.CHARGE_PERMISSIONS + '/' + chargePermissionId,
+      payload: payload
+    };
+
+    const response = await makeSignedRequest(requestOptions, this.config);
+
+    console.log('[AmazonPayV2.updateChargePermission] Completed successfully');
+    return response;
+  }
+
   async completeCheckoutSession(checkoutSessionId, payload) {
     constants.assertRequired(this.config, 'Amazon Pay not configured');
     constants.assertRequired(checkoutSessionId, 'Checkout session ID is required');

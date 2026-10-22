@@ -50,16 +50,36 @@ module.exports = function (context, callback) {
     var orderId = body.orderId;
     var paymentId = body.paymentId;
 
-    // Store tenantId, orderId, paymentId in merchantMetadata for IPN lookups
-    if (context.apiContext && context.apiContext.tenantId) {
-      payload.merchantMetadata = payload.merchantMetadata || {};
-      var customInfo = {
-        tenantId: context.apiContext.tenantId,
-        siteId: context.apiContext.siteId
-      };
-      if (orderId) customInfo.orderId = orderId;
+    // Store tenantId, siteId, orderId, paymentId in merchantMetadata for IPN lookups.
+    //
+    // Only written when all three values the refund IPN keys on are present and
+    // numeric. A partial blob is worse than none: the IPN's schema requires
+    // tenantId, siteId and orderId, so {tenantId, siteId} alone is rejected and the
+    // refund is dropped anyway - but it *looks* like correlation data, which makes
+    // the failure harder to diagnose than an absent field. The authoritative stamp
+    // is server-side (paymenthelper.stampOrderCorrelation, on AuthorizePayment),
+    // which reads trusted values from apiContext and the payment.
+    var apiContext = context.apiContext || {};
+    var tenantId = Number(apiContext.tenantId);
+    var siteId = Number(apiContext.siteId);
+    // Copied so neither branch mutates the request body's merchantMetadata.
+    payload.merchantMetadata = Object.assign({}, payload.merchantMetadata);
+    if (tenantId && siteId && orderId) {
+      // Emitted as numbers: the IPN coerces either way, but pinning the type here
+      // keeps the stored value canonical.
+      var customInfo = { tenantId: tenantId, siteId: siteId, orderId: orderId };
       if (paymentId) customInfo.paymentId = paymentId;
       payload.merchantMetadata.customInformation = JSON.stringify(customInfo);
+    } else {
+      // Never forward a browser-supplied correlation blob; the theme's other metadata keys stay.
+      delete payload.merchantMetadata.customInformation;
+      console.warn(
+        '[ORDER CORRELATION] Not writing customInformation - missing tenantId, siteId or orderId',
+        { tenantId: apiContext.tenantId, siteId: apiContext.siteId, hasOrderId: !!orderId }
+      );
+    }
+    if (Object.keys(payload.merchantMetadata).length === 0) {
+      delete payload.merchantMetadata;
     }
 
     if (!checkoutSessionId) {
