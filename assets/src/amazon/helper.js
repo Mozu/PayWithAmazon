@@ -128,7 +128,9 @@ var helper = (module.exports = {
       message = err.message;
       if (message.errorMessage) message = message.errorMessage;
     } else if (err.errorMessage) message = err.errorMessage;
-    if (typeof message !== "string")
+    var INTERNAL_ERROR_PATTERN =
+      /\[arcjs\]|invocation teardown|internalError|TypeError|ReferenceError|SyntaxError|RangeError|socket|ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i;
+    if (typeof message !== "string" || INTERNAL_ERROR_PATTERN.test(message))
       message =
         "An error occurred while processing your Amazon payment. Please try again.";
     if (

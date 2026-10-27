@@ -84,7 +84,7 @@ module.exports = function (context, callback) {
     var amazonCheckout = new AmazonCheckout(context, callback);
     var order = amazonCheckout.getOrder();
 
-    var existingPayment = getPayment(order, "Collected");
+    var existingPayment = getPayment(order, "Collected", payment);
 
     var billingInfo = context.get.payment().billingInfo;
 
@@ -105,7 +105,7 @@ module.exports = function (context, callback) {
       }
 
       if (!checkoutSessionId && !awsReferenceId) {
-        var newPayment = getPayment(order, "New");
+        var newPayment = getPayment(order, "New", payment);
         console.log(newPayment);
         if (newPayment) {
           awsReferenceId = newPayment.externalTransactionId;
@@ -157,15 +157,17 @@ module.exports = function (context, callback) {
   }
 };
 
-function getPayment(order, status) {
+function getPayment(order, status, incomingPayment) {
   console.log(order);
   if (!order || !order.payments) return null;
   return _.find(order.payments, function (payment) {
-    return (
-      (payment.paymentType === paymentConstants.PAYMENTSETTINGID ||
-        paymentHelper.isLegacyV1Payment(payment)) &&
-      payment.status === status
-    );
+    if (payment.status !== status) return false;
+    // Only reuse a payment of the same Amazon protocol as the incoming payment
+    if (paymentHelper.isAmazonpayV2(incomingPayment))
+      return paymentHelper.isAmazonpayV2(payment);
+    if (paymentHelper.isLegacyV1Payment(incomingPayment))
+      return paymentHelper.isLegacyV1Payment(payment);
+    return payment.paymentType === paymentConstants.PAYMENTSETTINGID;
   });
 }
 

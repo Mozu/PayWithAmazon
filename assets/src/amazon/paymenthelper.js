@@ -1023,10 +1023,13 @@ var paymentHelper = (module.exports = {
       };
 
       // Deterministic idempotency key (Amazon limit: 32 chars) so capture retries dedupe
+      // while distinct capture actions on the same payment stay distinct
       var captureIdempotencyKey = crypto
         .createHash("md5")
         .update(
           (payment.id || chargeId) +
+            "_" +
+            (paymentAction.id || "") +
             "_" +
             paymentAction.amount +
             "_" +
@@ -1039,6 +1042,27 @@ var paymentHelper = (module.exports = {
           console.log("Capture result:", captureResult);
 
           var captureState = captureResult.statusDetails.state;
+
+          // A replayed idempotent response may be stale; read the latest charge
+          // state so retries reconcile once Amazon finishes capturing
+          if (captureState === 'CaptureInitiated' || captureState === 'Pending') {
+            return amazonPayV2
+              .getCharge(chargeId)
+              .then(function (latestCharge) {
+                var latestState =
+                  (latestCharge.statusDetails && latestCharge.statusDetails.state) ||
+                  captureState;
+                return { captureResult: captureResult, state: latestState };
+              })
+              .catch(function () {
+                return { captureResult: captureResult, state: captureState };
+              });
+          }
+          return { captureResult: captureResult, state: captureState };
+        })
+        .then(function (resolved) {
+          var captureResult = resolved.captureResult;
+          var captureState = resolved.state;
           var status = paymentConstants.FAILED;
 
           if (captureState === 'Captured') {
