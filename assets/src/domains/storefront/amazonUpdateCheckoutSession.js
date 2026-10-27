@@ -15,7 +15,7 @@ try {
 var paymentHelper = require('../../amazon/paymenthelper');
 
 module.exports = function (context, callback) {
-  console.debug('Amazon Pay Update Checkout Session endpoint called');
+  console.log('Amazon Pay Update Checkout Session endpoint called');
 
   // Only handle POST requests to this specific path
   if (context.request.method !== 'POST') {
@@ -36,16 +36,22 @@ module.exports = function (context, callback) {
     console.log('Update checkout session request body: ' + JSON.stringify(body));
 
     if (!body) {
-      return sendError(context, 400, 'Request body is empty');
+      return sendError(context, callback, 400, 'Request body is empty');
     }
 
     var checkoutSessionId = body.checkoutSessionId;
 
-    var payload = Object.assign({}, body);
-    // Remove internal fields from payload before sending to Amazon
-    delete payload.checkoutSessionId;
-    delete payload.orderId;
-    delete payload.paymentId;
+    // Whitelist only the fields Amazon's UpdateCheckoutSession API accepts
+    var payload = {};
+    if (body.paymentDetails) payload.paymentDetails = body.paymentDetails;
+    if (body.merchantMetadata) payload.merchantMetadata = body.merchantMetadata;
+    if (body.providerMetadata) payload.providerMetadata = body.providerMetadata;
+    if (body.storeId) payload.storeId = body.storeId;
+    if (body.webCheckoutDetails && body.webCheckoutDetails.checkoutResultReturnUrl) {
+      payload.webCheckoutDetails = {
+        checkoutResultReturnUrl: body.webCheckoutDetails.checkoutResultReturnUrl
+      };
+    }
 
     var orderId = body.orderId;
     var paymentId = body.paymentId;
@@ -63,11 +69,11 @@ module.exports = function (context, callback) {
     }
 
     if (!checkoutSessionId) {
-      return sendError(context, 400, 'checkoutSessionId is required');
+      return sendError(context, callback, 400, 'checkoutSessionId is required');
     }
 
     if (!payload || Object.keys(payload).length === 0) {
-      return sendError(context, 400, 'payload is required');
+      return sendError(context, callback, 400, 'payload is required');
     }
 
     console.log('Updating checkout session:', checkoutSessionId);
@@ -97,7 +103,7 @@ module.exports = function (context, callback) {
 
         if (!redirectUrl) {
           console.error('No amazonPayRedirectUrl in response:', updatedSession);
-          return sendError(context, 500, 'Amazon Pay redirect URL not returned');
+          return sendError(context, callback, 500, 'Amazon Pay redirect URL not returned');
         }
 
         // Return success response with redirect URL
@@ -112,27 +118,28 @@ module.exports = function (context, callback) {
 
         context.response.body = response;
         context.response.statusCode = 200;
-        context.response.headers['Content-Type'] = 'application/json';
+        context.response.set('Content-Type', 'application/json');
 
         callback();
       })
       .catch(function (err) {
         console.error('Error updating checkout session:', err);
-        return sendError(context, 500, 'Failed to update checkout session: ' + (err.message || err));
+        return sendError(context, callback, 500, 'Failed to update checkout session: ' + (err.message || err));
       });
 
   } catch (e) {
     console.error('Exception in update checkout session endpoint:', e);
-    return sendError(context, 500, 'Internal server error: ' + e.message);
+    return sendError(context, callback, 500, 'Internal server error: ' + e.message);
   }
 };
 
-function sendError(context, statusCode, message) {
-  console.error('Sending error response:', JSON.stringify(context.request.body), message);
-  context.response.statusCode = statusCode;
-  context.response.set('Content-Type', 'application/json');
-  context.response.end(JSON.stringify({
+function sendError(context, callback, statusCode, message) {
+  console.error('Sending error response:', message);
+  context.response.body = {
     success: false,
     error: message
-  }));
+  };
+  context.response.statusCode = statusCode;
+  context.response.set('Content-Type', 'application/json');
+  callback();
 }

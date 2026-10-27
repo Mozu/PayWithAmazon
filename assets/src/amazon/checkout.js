@@ -89,7 +89,7 @@ function createOrderFromCart(userId, cartId) {
           var state = orderDetails.OrderReferenceStatus.State;
           console.log("Aws Order status", state);
           if (state == "Canceled") {
-            order.fulfillmentinfo = null;
+            order.fulfillmentInfo = null;
             return FulfillmentInfoClient.setFulFillmentInfo(
               { orderId: order.id, version: order.version },
               { body: {} }
@@ -129,7 +129,7 @@ function getAmazonOrderDetails(ctx, awsReferenceId, addressConsentToken) {
  */
 function getCheckoutSessionDetails(ctx, checkoutSessionId) {
   return paymentHelper.getPaymentConfig(ctx).then(function (config) {
-    console.debug('getCheckoutSessionDetails Retrieved payment config: ', config);
+    console.log('getCheckoutSessionDetails Retrieved payment config for region:', config.region, 'sandbox:', config.isSandbox);
     // Configure v2 SDK
     amazonPayV2.configure({
       publicKeyId: config.publicKeyId,
@@ -139,7 +139,7 @@ function getCheckoutSessionDetails(ctx, checkoutSessionId) {
     });
 
     return amazonPayV2.getCheckoutSession(checkoutSessionId).then(function (session) {
-      console.debug('Checkout session retrieved:', session);
+      console.log('Checkout session retrieved:', checkoutSessionId);
       return {
         checkoutSession: session,
         config: config
@@ -189,7 +189,7 @@ function getFulfillmentInfo(awsOrder, data, context) {
     return contact;
   } catch (e) {
     console.log(e);
-    new Error(e);
+    throw e;
   }
 }
 
@@ -264,16 +264,6 @@ module.exports = function (context, callback) {
   self.ctx = context;
   self.cb = callback;
 
-  self.validateUserSession = function () {
-    var user = self.ctx.items.pageContext.user;
-    if (!user.isAnonymous && !user.IsAuthenticated) {
-      self.ctx.response.redirect(
-        "/user/login?returnUrl=" + encodeURIComponent(self.ctx.request.url)
-      );
-      return self.ctx.response.end();
-    }
-  };
-
   // Validate if the checkout process is for amazon process.
   // Convert cart to order
   // redirect to checkout page
@@ -306,7 +296,7 @@ module.exports = function (context, callback) {
           console.log("Amazon Pay V2 flow detected with checkout session:", params.amazonCheckoutSessionId);
           if (cartId) {
             // Validate user session
-            helper.validateUserSession(self.ctx);
+            if (helper.validateUserSession(self.ctx)) return;
             
             // Check multiship setting and create order/checkout accordingly
             return getCheckoutSettings(self.ctx).then(function (siteSettings) {
@@ -329,15 +319,15 @@ module.exports = function (context, callback) {
         return amazonPay.validateToken(params.access_token);
       })
       .then(function (isTokenValid) {
-        // If this was V2 and returned early, isTokenValid will be undefined
-        if (isV2Checkout && isTokenValid === undefined) {
-          return; // Already handled in V2 flow above
-        }
-        
+        // V2 flow resolves to the created order/checkout (or undefined for early returns)
+        if (isV2Checkout) return isTokenValid;
+        // covers early cb() returns above (e.g. !isEnabled) that resolved undefined
+        if (isTokenValid === undefined) return;
+
         console.log("V1: Is Amazon token valid", isTokenValid);
         if (isTokenValid && cartId) {
           //validate user claims
-          helper.validateUserSession(self.ctx);
+          if (helper.validateUserSession(self.ctx)) return;
           return getCheckoutSettings(self.ctx).then(function (siteSettings) {
             if (!siteSettings.isMultishipEnabled) {
               console.log("V1: Converting cart to order (single-ship)", cartId);
@@ -351,7 +341,8 @@ module.exports = function (context, callback) {
         } else if (!isTokenValid) {
           console.log("V1: Amazon token expired, redirecting to cart");
           self.ctx.response.redirect("/cart");
-          return self.ctx.response.end();
+          self.ctx.response.end();
+          return;
         }
         return self.cb();
       })
@@ -364,7 +355,7 @@ module.exports = function (context, callback) {
         var queryString = "";
         Object.keys(params).forEach(function (key) {
           if (queryString !== "") queryString += "&";
-          queryString += key + "=" + params[key];
+          queryString += key + "=" + encodeURIComponent(params[key]);
         });
 
         if (isMultishipEnabled) {
@@ -439,7 +430,7 @@ module.exports = function (context, callback) {
                 if (!isTokenValid) {
                   console.log("Amazon token and expried, redirecting to cart");
                   self.ctx.response.redirect("/cart");
-                  self.ctx.response.end();
+                  return self.ctx.response.end();
                 } else if (_.has(params, "view")) {
                   console.log("Changing view name to amazon-checkout");
                   self.ctx.response.viewName = params.view;
@@ -473,6 +464,8 @@ module.exports = function (context, callback) {
       console.log("Amazon Pay v2 detected, fetching checkout session for shipping:", checkoutSessionId);
       return getCheckoutSessionDetails(self.ctx, checkoutSessionId)
         .then(function (sessionResult) {
+          if (sessionResult.config && !sessionResult.config.isEnabled)
+            return self.cb();
           var shippingAddress = getFulfillmentInfoFromSession(
             sessionResult.checkoutSession,
             data,
@@ -504,14 +497,19 @@ module.exports = function (context, callback) {
     );
 
     // V1 flow
+    var cbInvoked = false;
     paymentHelper
       .getPaymentConfig(self.ctx)
       .then(function (config) {
-        if (!config.isEnabled) return self.cb();
+        if (!config.isEnabled) {
+          cbInvoked = true;
+          return self.cb();
+        }
         amazonPay.configure(config);
         return amazonPay.validateToken(addressConsentToken);
       })
       .then(function (isTokenValid) {
+        if (isTokenValid === undefined) return;
         console.log("isTokenValid", isTokenValid);
         if (isTokenValid) {
           console.log(
@@ -528,10 +526,15 @@ module.exports = function (context, callback) {
         }
       })
       .then(function (awsOrder) {
+        if (cbInvoked) return;
+        if (!awsOrder) {
+          console.error("Empty GetOrderReferenceDetails response from Amazon");
+          return self.cb();
+        }
         var shippingAddress = getFulfillmentInfo(awsOrder, data, self.ctx);
         if (fulfillmentInfo.fulfillmentContact)
           shippingAddress.fulfillmentContact.email =
-            fulfillmentInfo.fulfillmentContact.email || shippingAddress.email;
+            fulfillmentInfo.fulfillmentContact.email || shippingAddress.fulfillmentContact.email;
 
         self.ctx.request.params.fulfillmentInfo = shippingAddress;
 
@@ -566,6 +569,8 @@ module.exports = function (context, callback) {
       console.log("Amazon Pay v2 detected for destination, fetching checkout session:", checkoutSessionId);
       return getCheckoutSessionDetails(self.ctx, checkoutSessionId)
         .then(function (sessionResult) {
+          if (sessionResult.config && !sessionResult.config.isEnabled)
+            return self.cb();
           var fulfillmentInfo = getFulfillmentInfoFromSession(
             sessionResult.checkoutSession,
             data,
@@ -604,14 +609,19 @@ module.exports = function (context, callback) {
     );
 
     // V1 flow
+    var cbInvoked = false;
     paymentHelper
       .getPaymentConfig(self.ctx)
       .then(function (config) {
-        if (!config.isEnabled) return self.cb();
+        if (!config.isEnabled) {
+          cbInvoked = true;
+          return self.cb();
+        }
         amazonPay.configure(config);
         return amazonPay.validateToken(addressConsentToken);
       })
       .then(function (isTokenValid) {
+        if (isTokenValid === undefined) return;
         console.log("isTokenValid", isTokenValid);
         if (isTokenValid) {
           console.log(
@@ -628,6 +638,11 @@ module.exports = function (context, callback) {
         }
       })
       .then(function (awsOrder) {
+        if (cbInvoked) return;
+        if (!awsOrder) {
+          console.error("Empty GetOrderReferenceDetails response from Amazon");
+          return self.cb();
+        }
         var fulfillmentInfo = getFulfillmentInfo(awsOrder, data, self.ctx);
         var destination = {
           destinationContact: fulfillmentInfo.fulfillmentContact,
@@ -636,7 +651,7 @@ module.exports = function (context, callback) {
 
         if (destination.destinationContact)
           destination.destinationContact.email =
-            destination.destinationContact.email || destination.email;
+            destination.destinationContact.email || fulfillmentInfo.fulfillmentContact.email;
 
         if (id) destination.id = id;
 
@@ -668,7 +683,7 @@ module.exports = function (context, callback) {
             }
           );
           console.log(awsDestination);
-          if (awsDestination)
+          if (awsDestination && awsDestination.destinationContact)
             billingContact.email = awsDestination.destinationContact.email;
         }
 
@@ -691,7 +706,7 @@ module.exports = function (context, callback) {
           billingContact.firstName = firstName;
           billingContact.lastNameOrSurname = lastName;
           billingContact.phoneNumbers = {
-            home: address.Phone ? address.phone : "N/A",
+            home: address.Phone,
           };
           billingContact.address = {
             address1: address.AddressLine1,
@@ -807,22 +822,27 @@ module.exports = function (context, callback) {
             "Order status",
             "Amazon order " + awsReferenceId + " went into stale state"
           );
-          self.cb(
+          throw new Error(
             "Amazon order has timed out. Relogin from cart or checkout page"
           );
         }
 
         //check constraints
-        if (orderDetails.Constraints) {
-          var paymentNotSet = _.find(orderDetails.Constraint, function (c) {
-            return c.ConstraintID === "PaymentPlanNotSet";
-          });
+        if (orderDetails.Constraints && orderDetails.Constraints.Constraint) {
+          var constraints = orderDetails.Constraints.Constraint;
+          if (!_.isArray(constraints)) constraints = [constraints];
+          var paymentNotSet = _.find(
+            constraints,
+            function (c) {
+              return c.ConstraintID === "PaymentPlanNotSet";
+            }
+          );
           if (paymentNotSet) {
             console.log(
               "Amazon payment not set",
               "Amazon order " + awsReferenceId + " payment not set"
             );
-            self.cb(
+            throw new Error(
               "A valid payment has not been selected from Amazon. Please fix the issue before placing the order"
             );
           }
@@ -830,7 +850,7 @@ module.exports = function (context, callback) {
       })
       .catch(function (err) {
         console.error("Error validating aws order", err);
-        self.cb(err);
+        throw err;
       });
   };
 
@@ -839,6 +859,7 @@ module.exports = function (context, callback) {
     var paymentAction = self.ctx.get.paymentAction();
     var payment = self.ctx.get.payment();
 
+    if (!paymentAction || !payment) return self.cb();
     console.log("Payment Action:", paymentAction.actionName);
     //console.log("Payment", payment);
     console.log("apiContext", self.ctx.apiContext);
@@ -847,16 +868,13 @@ module.exports = function (context, callback) {
         !paymentHelper.isLegacyV1Payment(payment))
       return self.cb();
 
-    if (!payment.externalTransactionId)
-      payment.externalTransactionId = payment.billingInfo.externalTransactionId;
-    if (!payment.externalTransactionId)
-      throw new Error("PayWith Amazon Referenceid is missing");
-
-    if (self.ctx.configuration && self.ctx.configuration.payment)
-      declineCapture = self.ctx.configuration.payment.declineCapture === true;
-
     try {
-      paymentHelper 
+      if (!payment.externalTransactionId && payment.billingInfo)
+        payment.externalTransactionId = payment.billingInfo.externalTransactionId;
+      if (!payment.externalTransactionId)
+        throw new Error("PayWith Amazon Referenceid is missing");
+
+      paymentHelper
         .getPaymentConfig(self.ctx)
         .then(function (config) {
           // Detect if this is Amazon Pay v2 (checkout session) or v1 (order reference)
@@ -973,16 +991,16 @@ module.exports = function (context, callback) {
         })
         .catch(function (err) {
           console.error(err);
-          var errorInteraction = {
-            status: paymentConstants.FAILED,
-            gatewayResponseText: err,
-          };
-          payment.interactions.push(errorInteraction);
-          self.ctx.exec.addPaymentInteraction(errorInteraction);
-          self.cb(err);
-        })
-        .catch(function (err) {
-          console.error(err);
+          try {
+            var errorInteraction = {
+              status: paymentConstants.FAILED,
+              gatewayResponseText: err && err.message ? err.message : String(err),
+            };
+            if (payment.interactions) payment.interactions.push(errorInteraction);
+            self.ctx.exec.addPaymentInteraction(errorInteraction);
+          } catch (inner) {
+            console.error(inner);
+          }
           self.cb(err);
         });
     } catch (e) {
@@ -1020,8 +1038,8 @@ module.exports = function (context, callback) {
   };
 
   self.setError = function (error) {
-    console.log(err);
-    self.ctx.cache.request.set("amazonError", err);
+    console.log(error);
+    self.ctx.cache.request.set("amazonError", error);
     self.cb();
   };
 };
