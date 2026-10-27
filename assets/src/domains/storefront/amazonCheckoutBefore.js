@@ -28,10 +28,11 @@ module.exports = function (context, callback) {
   console.error("Handling amazon checkout before logic");
 
   var amazonCheckout = new AmazonCheckout(context, callback);
-  amazonCheckout
-    .validateAndProcess()
-    .then(callback)
-    .catch(function (e) {
+  try {
+    Promise.resolve(amazonCheckout.validateAndProcess()).catch(function (e) {
       amazonCheckout.setError(e);
     });
+  } catch (e) {
+    amazonCheckout.setError(e);
+  }
 };

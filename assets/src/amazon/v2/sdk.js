@@ -21,7 +21,7 @@ class AmazonPayV2 {
     const clientConfig = {
       publicKeyId: publicKeyId,
       privateKey: formattedPrivateKey, // PEM string
-      region: region || defaultRegion,
+      region: (region || defaultRegion).toLowerCase(),
       sandbox: isSandbox || false,
       algorithm: algorithm
     };
@@ -37,7 +37,7 @@ class AmazonPayV2 {
     this.config = {
       publicKeyId: publicKeyId,
       privateKey: formattedPrivateKey, // Use the corrected private key
-      region: region,
+      region: (region || defaultRegion).toLowerCase(),
       isSandbox: isSandbox
     };
   }
@@ -138,18 +138,18 @@ class AmazonPayV2 {
     return response;
   }
 
-  async captureCharge(chargeId, payload) {
+  async captureCharge(chargeId, payload, idempotencyKey) {
     constants.assertRequired(this.config, 'Amazon Pay not configured');
     constants.assertRequired(chargeId, 'Charge ID is required');
     constants.assertRequired(payload, 'Payload is required');
 
-    // Generate idempotency key
-    const idempotencyKey = generateIdempotencyKey(constants.IDEMPOTENCY_PREFIXES.CAPTURE);
+    // Use caller-provided idempotency key (deterministic retries) or generate one
+    const key = idempotencyKey || generateIdempotencyKey(constants.IDEMPOTENCY_PREFIXES.CAPTURE);
 
     console.log('[AmazonPayV2.captureCharge] Called for charge:', chargeId);
 
     // Use helper with needle for Kibo compatibility
-    const headers = { 'x-amz-pay-idempotency-key': idempotencyKey };
+    const headers = { 'x-amz-pay-idempotency-key': key };
     const requestOptions = {
       method: constants.METHODS.POST,
       path: constants.PATHS.CHARGES + '/' + chargeId + constants.PATHS.CAPTURE,

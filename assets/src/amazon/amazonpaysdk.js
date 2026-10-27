@@ -57,22 +57,35 @@ var buildParamString = function (params, uriEncodeValues) {
 
 var parseErrorToJson = function (error) {
   console.log("AWS Error ", error);
+  if (error && error.ErrorResponse && error.ErrorResponse.Error)
+    return {
+      type: error.ErrorResponse.Error.Type,
+      code: error.ErrorResponse.Error.Code,
+      message: error.ErrorResponse.Error.Message,
+    };
   return {
-    type: error.ErrorResponse.Error.Type,
-    code: error.ErrorResponse.Error.Code,
-    message: error.ErrorResponse.Error.Message,
+    type: "Unknown",
+    code: "Unknown",
+    message: typeof error === "string" ? error : "Amazon request failed",
   };
 };
 
 module.exports = function () {
-  var self = this;
+  var self = {};
 
   self.configure = function (config) {
     self.config = config;
     self.config.profileEnvt = config.isSandbox ? "api.sandbox" : "api";
-    path = config.isSandbox ? "/OffAmazonPayments_Sandbox" : "/OffAmazonPayments";
+    var path = config.isSandbox
+      ? "/OffAmazonPayments_Sandbox"
+      : "/OffAmazonPayments";
     self.config.path = path + "/" + version;
-    self.config.server = mwsServiceUrls[regionMappings[config.region]];
+    // config.region may be a v2-style code (NA/EU/JP); v1 endpoint maps need the raw key
+    var v1Region = (config.v1Region || config.region || "us").toLowerCase();
+    if (v1Region === "na") v1Region = "us";
+    if (v1Region === "eu") v1Region = "uk";
+    self.config.v1Region = v1Region;
+    self.config.server = mwsServiceUrls[regionMappings[v1Region]];
     self.captureOnAuthorize = config.captureOnAuthorize;
   };
 
@@ -92,12 +105,11 @@ module.exports = function () {
     stringToSign += self.config.path;
     stringToSign += "\n";
     stringToSign += buildParamString(params, true);
-    console.log("AWS Params to Sign", stringToSign);
+    console.log("AWS signing request for action", action);
     var signature = crypto
       .createHmac("sha256", self.config.mwsSecret)
       .update(stringToSign)
       .digest("base64");
-    console.log("Aws Signature", signature);
     params.Signature = encodeURIComponent(signature);
 
     var promise = new Promise(function (resolve, reject) {
@@ -106,8 +118,9 @@ module.exports = function () {
         buildParamString(params, false),
         { json: false, parse: true, open_timeout: 60000 },
         function (err, response, body) {
-          if (response.statusCode != 200)
-            reject(parseErrorToJson(response.body));
+          if (err) return reject(err);
+          if (!response || response.statusCode != 200)
+            reject(parseErrorToJson(body));
           else {
             resolve(body);
           }
@@ -142,11 +155,12 @@ module.exports = function () {
         "https://" +
           self.config.profileEnvt +
           "." +
-          profileEndpointUrls[self.config.region] +
+          profileEndpointUrls[self.config.v1Region] +
           "/user/profile",
         { headers: { Authorization: "bearer " + access_token } },
         function (err, response, body) {
-          if (response.statusCode != 200) reject(response.body);
+          if (err) return reject(err);
+          if (!response || response.statusCode != 200) reject(body);
           else {
             resolve(body);
           }
@@ -161,7 +175,7 @@ module.exports = function () {
     params.AmazonOrderReferenceId = orderReferenceId;
     if (addressConsentToken) params.AddressConsentToken = addressConsentToken;
 
-    return executeRequest("GetOrderReferenceDetails", params);
+    return self.executeRequest("GetOrderReferenceDetails", params);
   };
 
   self.setOrderDetails = function (orderReferenceId, orderDetails) {
@@ -176,14 +190,14 @@ module.exports = function () {
     params["OrderReferenceAttributes.SellerOrderAttributes.StoreName"] =
       orderDetails.websiteName;
     console.log("Setting AWS order orderDetails", params);
-    return executeRequest("SetOrderReferenceDetails", params);
+    return self.executeRequest("SetOrderReferenceDetails", params);
   };
 
   self.confirmOrder = function (orderReferenceId) {
     var params = {};
     params.AmazonOrderReferenceId = orderReferenceId;
     console.log("Confirming AWS Order", params);
-    return executeRequest("ConfirmOrderReference", params);
+    return self.executeRequest("ConfirmOrderReference", params);
   };
 
   self.requestAuthorzation = function (
@@ -207,7 +221,7 @@ module.exports = function () {
         '{"SandboxSimulation": {"State":"Declined", "ReasonCode":"InvalidPaymentMethod", "PaymentMethodUpdateTimeInMins":5}}';
 
     console.log("Requesting AWS Authorization", params);
-    return executeRequest("Authorize", params);
+    return self.executeRequest("Authorize", params);
   };
 
   self.captureAmount = function (
@@ -241,26 +255,26 @@ module.exports = function () {
       params.SellerCaptureNote = '{"SandboxSimulation": {"State":"Pending"}}';
    
     console.log("Requesting AWS Capture", params);
-    return executeRequest("Capture", params);
+    return self.executeRequest("Capture", params);
   };
 
   self.getCaptureDetails = function (amazonCaptureId) {
     var params = {};
     params.AmazonCaptureId = amazonCaptureId;  
 
-    return executeRequest("GetCaptureDetails", params);
+    return self.executeRequest("GetCaptureDetails", params);
   };
   
   self.cancelOrder = function (orderReferenceId) {
     var params = {};
     params.AmazonOrderReferenceId = orderReferenceId;
-    return executeRequest("CancelOrderReference", params);
+    return self.executeRequest("CancelOrderReference", params);
   };
 
   self.closeOrder = function (orderReferenceId) {
     var params = {};
     params.AmazonOrderReferenceId = orderReferenceId;
-    return executeRequest("CloseOrderReference", params);
+    return self.executeRequest("CloseOrderReference", params);
   };
 
   self.refund = function (captureId, refund, websiteName) {
@@ -271,12 +285,12 @@ module.exports = function () {
     params.RefundReferenceId = refund.id;
     params[
       "OrderReferenceAttributes.SellerOrderAttributes.StoreName"
-    ] = websiteName;
+    ] = websiteName || refund.websiteName;
     params["OrderReferenceAttributes.SellerOrderAttributes.SellerOrderId"] =
       refund.orderNumber;
     if (refund.note) params.SellerRefundNote = refund.note;
     console.log("AWS refund params", params);
-    return executeRequest("Refund", params);
+    return self.executeRequest("Refund", params);
   };
   return self;
 };

@@ -36,6 +36,9 @@ function formatPrivateKey(privateKey) {
     throw new Error('Private key must be a string or buffer');
   }
 
+  // PEMs stored with escaped newlines (common in settings UI) need unescaping
+  privateKey = privateKey.replace(/\\n/g, '\n');
+
   // Fix private key format if needed (handle malformed PEM keys)
   if (privateKey && privateKey.indexOf(constants.PRIVATE_KEY_BEGIN) !== -1) {
     // Check if key needs format correction
@@ -164,7 +167,7 @@ function buildHeadersToSign(host, regionLower, amzDate, nodeVersion, additionalH
   const headersToSign = {
     'accept': constants.HEADERS.ACCEPT,
     'content-type': constants.HEADERS.CONTENT_TYPE,
-    'user-agent': `amazon-pay-api-sdk-nodejs/${constants.SDK_VERSION} (JS/${nodeVersion}; ${process.platform})`,
+    'user-agent': `amazon-pay-api-sdk-nodejs/${constants.SDK_VERSION} (JS/${nodeVersion}; ${typeof process !== 'undefined' ? process.platform : 'unknown'})`,
     'x-amz-pay-date': amzDate,
     'x-amz-pay-host': host,
     'x-amz-pay-region': regionLower
@@ -278,7 +281,7 @@ function buildRequestHeaders(authorization, host, regionLower, amzDate, nodeVers
     'x-amz-pay-region': regionLower,
     'content-type': constants.HEADERS.CONTENT_TYPE,
     'accept': constants.HEADERS.ACCEPT,
-    'user-agent': `amazon-pay-api-sdk-nodejs/${constants.SDK_VERSION} (JS/${nodeVersion}; ${process.platform})`
+    'user-agent': `amazon-pay-api-sdk-nodejs/${constants.SDK_VERSION} (JS/${nodeVersion}; ${typeof process !== 'undefined' ? process.platform : 'unknown'})`
   };
 
   // Add additional headers
@@ -339,6 +342,10 @@ function executeHttpsRequest(host, canonicalUri, method, headers, payloadString)
     });
 
     req.on('error', reject);
+
+    req.setTimeout(30000, function () {
+      req.destroy(new Error('Amazon Pay API request timed out'));
+    });
 
     // Write payload for requests with body
     if (method !== constants.METHODS.GET && payloadString) {

@@ -27,7 +27,8 @@ var helper = (module.exports = {
           encodeURIComponent(context.request.url) +
           "&saveUserId=true";
       context.response.redirect(redirectUrl);
-      return context.response.end();
+      context.response.end();
+      return true;
     }
   },
   getUserEmail: function (context) {
@@ -64,7 +65,7 @@ var helper = (module.exports = {
     var request = context.request;
     var urlParseResult = url.parse(request.url);
     console.log("parsedUrl", urlParseResult);
-    queryStringParams = qs.parse(urlParseResult.query);
+    var queryStringParams = qs.parse(urlParseResult.query);
     return queryStringParams;
   },
   isCartPage: function (context) {
@@ -120,12 +121,24 @@ var helper = (module.exports = {
       console.error("originalError", err.originalError);
       if (err.originalError.items && err.originalError.items.length > 0)
         message = err.originalError.items[0].message;
-      else message = err.originalError.message;
+      else
+        message =
+          "An error occurred while processing your Amazon payment. Please try again.";
     } else if (err.message) {
       message = err.message;
       if (message.errorMessage) message = message.errorMessage;
     } else if (err.errorMessage) message = err.errorMessage;
-    context.response.viewData.model.messages = [{ message: message }];
+    var INTERNAL_ERROR_PATTERN =
+      /\[arcjs\]|invocation teardown|internalError|TypeError|ReferenceError|SyntaxError|RangeError|socket|ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i;
+    if (typeof message !== "string" || INTERNAL_ERROR_PATTERN.test(message))
+      message =
+        "An error occurred while processing your Amazon payment. Please try again.";
+    if (
+      context.response &&
+      context.response.viewData &&
+      context.response.viewData.model
+    )
+      context.response.viewData.model.messages = [{ message: message }];
     callback();
   },
 });

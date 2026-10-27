@@ -74,7 +74,12 @@ function AppInstall(context, callback) {
     existingSettings
   ) {
     var paymentDef = getPaymentDef(existingSettings);
-    console.log(paymentDef);
+    console.log(
+      "paymentDef credentials:",
+      (paymentDef.credentials || []).map(function (c) {
+        return c.apiName;
+      })
+    );
     paymentDef.isEnabled = existingSettings.isEnabled;
     return paymentSettingsClient
       .deleteThirdPartyPaymentWorkflow({
@@ -283,7 +288,7 @@ function AppInstall(context, callback) {
     vocabularyValues,
     existingSettings
   ) {
-    value = "";
+    var value = "";
     if (existingSettings) value = helper.getValue(existingSettings, key);
 
     return {

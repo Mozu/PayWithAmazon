@@ -27,12 +27,11 @@ var amazonCheckoutSession = require("./amazonCheckoutSession");
 module.exports = function (context, callback) {
   
   var amazonCheckout = new AmazonCheckout(context, callback);
-  amazonCheckout
-    .validateAndProcess()
-    .then(callback, function (e) {
-      amazonCheckout.setError(e);
-    })
-    .catch(function (e) {
+  try {
+    Promise.resolve(amazonCheckout.validateAndProcess()).catch(function (e) {
       amazonCheckout.setError(e);
     });
+  } catch (e) {
+    amazonCheckout.setError(e);
+  }
 };

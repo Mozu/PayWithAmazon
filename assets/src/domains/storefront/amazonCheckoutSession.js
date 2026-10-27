@@ -15,7 +15,7 @@ try {
 var paymentHelper = require('../../amazon/paymenthelper');
 
 module.exports = function (context, callback) {
-  console.debug('Amazon Pay Checkout Session endpoint called');
+  console.log('Amazon Pay Checkout Session endpoint called');
 
   // Only handle POST requests to this specific path
   if (context.request.method !== 'POST') {
@@ -36,7 +36,7 @@ module.exports = function (context, callback) {
     console.log('context.request.body: ' + JSON.stringify(body));
 
     if (!body) {
-      return sendError(context, 400, 'Request body is empty');
+      return sendError(context, callback, 400, 'Request body is empty');
     }
 
     var cartOrOrderId = body.cartOrOrderId;
@@ -44,7 +44,7 @@ module.exports = function (context, callback) {
     var returnUrl = body.returnUrl;
 
     if (!returnUrl) {
-      return sendError(context, 400, 'returnUrl is required');
+      return sendError(context, callback, 400, 'returnUrl is required');
     }
 
     console.log('Generating checkout session for:', {
@@ -87,7 +87,7 @@ module.exports = function (context, callback) {
         payload.scopes = ['name', 'email', 'phoneNumber', 'billingAddress'];
       }
 
-      console.debug('generateButtonSignature payload:', payload);
+      console.log('generateButtonSignature payload:', payload);
       // Generate signature
       var signature = amazonPayV2.generateButtonSignature(payload);
 
@@ -101,25 +101,28 @@ module.exports = function (context, callback) {
       console.log('Checkout session signature generated successfully: ', response);
 
       // Send response
+      context.response.set('Content-Type', 'application/json');
       context.response.body = response;
-      context.response.end();
+      context.response.statusCode = 200;
+      callback();
 
     }).catch(function (error) {
       console.error('Error generating checkout session:', error);
-      sendError(context, 500, 'Failed to generate checkout session: ' + error.message);
+      sendError(context, callback, 500, 'Failed to generate checkout session: ' + error.message);
     });
 
   } catch (error) {
     console.error('Error in checkout session endpoint:', error);
-    sendError(context, 500, error.message);
+    sendError(context, callback, 500, error.message);
   }
 };
 
-function sendError(context, statusCode, message) {
-  context.response.statusCode = statusCode;
-  context.response.setHeader('Content-Type', 'application/json');
-  context.response.write(JSON.stringify({
+function sendError(context, callback, statusCode, message) {
+  context.response.body = {
+    success: false,
     error: message
-  }));
-  context.response.end();
+  };
+  context.response.statusCode = statusCode;
+  context.response.set('Content-Type', 'application/json');
+  callback();
 }

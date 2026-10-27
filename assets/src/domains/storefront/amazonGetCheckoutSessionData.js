@@ -30,14 +30,14 @@ module.exports = function (context, callback) {
 
   try {
     // Extract checkout session ID directly from the URL using split
-    var urlParts = url.split('/');
+    var urlParts = url.split('?')[0].split('/');
     var checkoutSessionIndex = urlParts.indexOf('checkoutsession');
 
     // If 'checkoutsession' is found, the next part is the session ID
     var checkoutSessionId = checkoutSessionIndex !== -1 && urlParts[checkoutSessionIndex + 1];
 
     if (!checkoutSessionId) {
-      return sendError(context, 400, 'Checkout session ID is required in URL path');
+      return sendError(context, callback, 400, 'Checkout session ID is required in URL path');
     }
 
     // Get payment configuration
@@ -66,23 +66,23 @@ module.exports = function (context, callback) {
 
       context.response.body = response;
       context.response.statusCode = 200;
-      context.response.headers['Content-Type'] = 'application/json';
+      context.response.set('Content-Type', 'application/json');
 
       callback();
 
     }).catch(function (error) {
-      return sendError(context, 500, 'Failed to retrieve checkout session: ' + error.message);
+      return sendError(context, callback, 500, 'Failed to retrieve checkout session: ' + error.message);
     });
 
   } catch (error) {
-    return sendError(context, 500, 'Internal server error: ' + error.message);
+    return sendError(context, callback, 500, 'Internal server error: ' + error.message);
   }
 };
 
 /**
  * Send error response
  */
-function sendError(context, statusCode, message) {
+function sendError(context, callback, statusCode, message) {
   context.response.body = {
     success: false,
     error: {
@@ -91,7 +91,7 @@ function sendError(context, statusCode, message) {
     }
   };
   context.response.statusCode = statusCode;
-  context.response.headers['Content-Type'] = 'application/json';
+  context.response.set('Content-Type', 'application/json');
 
-  context.exec.callback();
+  callback();
 }
