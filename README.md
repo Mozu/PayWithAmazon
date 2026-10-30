@@ -1,113 +1,118 @@
-# Mozu Pay with Amazon Application using Arc.js
-### Version 1.0.0 - Hosted Workflow
+# PayWithAmazon — Arc.js Application
 
-The Pay with Amazon Application by Mozu uses the Arc.js framework to create custom actions that enable the use of the Amazon Payments service on the Mozu platform. This app uses the [Amazon Marketplace Web Service (MWS) API](https://developer.amazonservices.com/gp/mws/docs.html) to connect Mozu with Amazon. 
+Integrates Amazon Pay (v2 and legacy v1) with the Kibo Commerce platform. An Arc.js
+hosted-workflow app: the payment workflow actions run server-side on the platform, the
+storefront routes proxy the browser to Amazon's checkout, and the site settings carry the
+credentials.
 
-**Note:** The code in this repository is provided for reference purposes only. If you are a Mozu customer and want to enable Pay with Amazon functionality on your storefront, you can simply install the Pay with Amazon Application by Mozu from the [Mozu App Marketplace](https://www.mozu.com/marketplace/) and integrate the required [theme](https://github.com/Mozu/PayWithAmazon-Theme) changes.
+## What this app does
 
-## Amazon Security Requirements
-This application is implemented using a hosted workflow that protects a merchant from having to share their AWS Secret Key. Amazon requires that merchants never share their Secret Key, and provides the MWS Authorization Token as an alternative method for third-party application developers to access a client’s MWS account. The merchant-flow branch of this repo shows an alternative implementation that in-house application developers can use.
+| Capability | Where |
+|---|---|
+| Amazon Pay v2 checkout (checkout sessions, authorize, capture) | `assets/src/amazon/v2/` + the payment workflow actions |
+| Legacy Amazon Pay v1 (MWS order references) | `assets/src/amazon/checkout.js` (v1 path) |
+| Billing contact extraction (name, address, phone from Amazon) | `assets/src/amazon/checkout.js` — v2 from checkout session, v1 from MWS order details |
+| Refund correlation stamping — links a refund to its Kibo order | `assets/src/amazon/paymenthelper.js` (server-side at `AuthorizePayment`) + `assets/src/domains/storefront/amazonUpdateCheckoutSession.js` (storefront route) |
+| Declined-refund recording (`Failed` credit, not `Credited`) | `assets/src/amazon/paymenthelper.js` |
+| Site settings (credentials, environment, sandbox toggle) | `assets/src/domains/platform.applications/` |
+| Guard against tampered correlation blobs | `assets/src/domains/storefront/amazonUpdateCheckoutSession.js` |
 
-## Requirements for Developing with Arc.js
+## Architecture
 
-In order to work with Arc.js, you'll need to have:
+```mermaid
+flowchart LR
+    B[Shopper browser] -- "checkout page calls<br/>Amazon Pay v2 button" --> AMA[Amazon-hosted<br/>checkout page]
+    AMA -- "return + checkoutSessionId" --> B
+    B -- "POST updateCheckoutSession" --> SF["Arc storefront route<br/>stamps correlation<br/>merchantMetadata.customInformation"]
+    SF --> AMA
+    B -- "submit order" --> KIB["Kibo platform<br/>CreatePayment + AuthorizePayment"]
+    KIB -- "before hook" --> BILL["billing extraction<br/>v2: session billingAddress<br/>v1: order details"]
+    KIB -- "authorize hook" --> STAMP["stampOrderCorrelation<br/>server-side, trusted values"]
+    STAMP --> AMA
+```
 
- - A Developer Account at [mozu.com](http://mozu.com/login)
- - Arc.js enabled on your Mozu tenant. (Contact your sales or professional services representative for more information.)
- - NodeJS
- - The following global NPM packages installed
-    - `yo`
-    - `grunt-cli`
-    - `generator-mozu-app`
- You can install all of the required NPM packages at once by running the following command in your Terminal (OS X) or Command Prompt (Windows):
-   ```sh
-   npm i -g yo grunt-cli generator-mozu-app
-   ```
+## The refund IPN integration
 
-## Clone and Upload the App
+This app stamps the **order correlation** — `{tenantId, siteId, orderId, paymentId?}` as
+JSON — onto the Amazon Pay v2 charge permission's `merchantMetadata.customInformation`.
+The refund IPN service (`kibo-paywithamazon-ipn`) reads that stamp to resolve a refund
+notification back to its Kibo order and payment.
 
-1. First, clone this repository to a folder on your development machine:
-   ```sh
-   $ git clone https://github.com/Mozu/PayWithAmazon.git
-   
-   Cloning into './PayWithAmazon'...
-   done.
-   ```
+The correlation is stamped in **two places**, both from trusted server-side values:
 
-2. Log in to the Mozu Developer Center and create a new app. Call it "PayWithAmazon". Make a note of its Application Key.
+1. **`AuthorizePayment` time** (`paymenthelper.stampOrderCorrelation`) — the authoritative
+   stamp. Takes `orderId` from the payment object (a platform value, not browser-supplied).
+   Runs regardless of the checkout frontend (headless or theme-driven), so it works even
+   when the core theme is not updated. Skips the Amazon call when the checkout-session
+   stamp already wrote the same values.
 
-3. Now you're prepared to generate your upload configuration! Have on hand:
-    - The application key for the app you just created
-    - Your Developer Center login
-   Got those? OK, in your `PayWithAmazon` directory you cloned from Git, run:
-   ```sh
-   $ yo mozu-app --config
-   ```
-   You will be prompted to enter all the necessary information.
+2. **The storefront `updateCheckoutSession` route** — the early stamp. Writes the
+   correlation when the shopper returns from Amazon's checkout page (before the payment is
+   created). Includes a guard that drops a browser-supplied correlation blob when
+   tenant/site/order are incomplete, so a tampered or partial blob is never forwarded.
 
-4. Once that is complete, you should be able to run `npm install`:
-   ```sh
-   $ npm install
-   ```
-   to download the necessary dependencies.
+A declined refund carries `isDeclined: true` plus Amazon's reason code, so the manual
+credit records as `Failed` instead of `Credited`.
 
-5. You're ready to sync! Run `grunt`:
-   ```sh
-   $ grunt
-   ```
-   to upload the actions to Developer Center. Or, if you want grunt to detect when you change files and upload continuously as you work, run:
-   ```sh
-   $ grunt watch
-   ```
+## Billing contact extraction
 
-## Install the App
+On `CreatePayment`, the before-hook enriches the billing contact from Amazon:
 
-Now that you've uploaded the code to your PayWithAmazon app, it's ready to install in your sandbox! 
+| Path | Trigger | What it reads |
+|---|---|---|
+| **v2** — `getBillingInfoFromSession` | the payment's checkout session id | the v2 checkout session's `billingAddress` (name, address, phone) — gated on the site's `billingAddressOption` setting (non-zero = extract) |
+| **v1** — `getBillingInfo` | the payment's MWS order reference id | the v1 MWS order's `BillingAddress.PhysicalAddress` — gated on the same setting |
 
-1.	In Mozu Dev Center, go to **Develop** > **Applications** and double-click the app. 
-2.	On the app details page, click **Install**. 
-3.	Select your sandbox in the dialog that appears and click **OK**.
+For a v2 payment without `awsData` on the payment (the common case when the theme doesn't
+carry it), the fallback reads the new payment's `externalTransactionId` — which for v2 IS
+the checkoutSessionId — and routes it to the v2 session path.
 
-*If the install process fails at this point, check with Mozu Support to make sure that the Arc.js framework is enabled for your sandbox.*
+## Site settings
 
-## Configure Your Pay with Amazon Settings in Mozu Admin
+Configured per site in the admin (**Settings → Payment & Checkout → PayWithAmazonV2**):
 
-In the sandbox where you installed the app, go to **Settings** > **Payment & Checkout**.
+| Setting | Purpose |
+|---|---|
+| `isEnabled` | the checkout button + payment workflow gate |
+| `merchantId`, `publicKeyId`, `privateKey`, `storeId` | Amazon Pay v2 credentials (site-scoped) |
+| `environment` | `sandbox` or `live` |
+| `region` | `na`, `eu`, `jp` |
+| `captureOnAuthorize` | auto-capture at authorize time |
+| `billingAddressOption` | non-zero = extract the full billing contact from Amazon's checkout session |
 
-You should see a new option for **PayWithAmazon**. Enable the checkbox to view the Amazon configuration settings. Pay with Amazon requires the following default settings for the app to work:
-- SellerId
-- Client Id
-- Application Id
-- MWS Auth Token
-- AWS Region
-- Order Processing
+## Development
 
-These settings are defined in the following file in your application:
-`assets/src/domains/platform.applications/embedded.platform.applications.install.js`
+Arc.js app — standard workflow:
 
-You can modify this file to add additional settings.
+```bash
+npm install          # dependencies
+yo mozu-app --config # one-time: generate the upload config
+grunt                # upload actions to Developer Center
+grunt watch          # continuous upload during development
+```
 
-## Merge Theme Changes
+Tests (Arc.js `mozu-test-harness`):
 
-Installing and configuring the Pay with Amazon app enables you to accept payments via Amazon Payments. However, you still must enable Pay with Amazon functionality on your storefront so that customers can use it. Go to the [PayWithAmazon-Theme](https://github.com/Mozu/PayWithAmazon-Theme) repository and follow the instructions in the readme to merge Pay with Amazon functionality with your Mozu theme.
+```bash
+npm test
+```
 
-## Payment Code Actions
+## Payment workflow actions
 
-The following are the actions for which embedded.commerce.payments.action.performPaymentInteraction is invoked:
-- CreatePayment
-- AuthorizePayment
-- CapturePayment
-- CreditPayment
-- DeclinePayment
-- Rollback
-- VoidPayment
+The app intercepts `embedded.commerce.payments.action.performPaymentInteraction` for:
 
-After the payment interaction has been processed, one of the following states can be passed back to the system:
-- Authorized
-- Captured
-- Declined
-- Failed (set this state to terminate payment flow)
-- Voided
-- Credited
-- New
-- RolledBack
+| Action | What this app does |
+|---|---|
+| `CreatePayment` | extracts the billing contact from Amazon; sets the external transaction id |
+| `AuthorizePayment` | stamps the order correlation onto the charge permission; records declined refunds as `Failed` |
+| `CapturePayment` | captures the Amazon charge |
+| `CreditPayment` | creates the Amazon refund (IPN-driven settlement is handled by the IPN service) |
+| `DeclinePayment`, `Rollback`, `VoidPayment` | the terminal states |
+
+## The IPN service
+
+The refund reconciliation is handled by the separate
+[`kibo-paywithamazon-ipn`](https://github.com/Kibo-UCP/kibo-paywithamazon-ipn) service,
+which receives the Amazon Pay v2 SNS notifications and applies the refund outcome to
+CommerceRuntime. The integration flow is documented on
+[Confluence](https://kibo.atlassian.net/wiki/spaces/EN/pages/138716807170).

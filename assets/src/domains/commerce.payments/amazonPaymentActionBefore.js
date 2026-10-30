@@ -107,8 +107,17 @@ module.exports = function (context, callback) {
       if (!checkoutSessionId && !awsReferenceId) {
         var newPayment = getPayment(order, "New", payment);
         console.log(newPayment);
-        if (newPayment) {
-          awsReferenceId = newPayment.externalTransactionId;
+        if (newPayment && newPayment.externalTransactionId) {
+          // For v2 the externalTransactionId IS the checkoutSessionId (the storefront
+          // sets it when the shopper returns from Amazon). Route it to the v2 billing
+          // path so it reads the v2 checkout session's billingAddress instead of
+          // falling through to the v1 path, which calls the wrong Amazon API.
+          var externalId = String(newPayment.externalTransactionId);
+          if (externalId.indexOf("-") !== -1 && externalId.length > 30) {
+            checkoutSessionId = externalId;
+          } else {
+            awsReferenceId = externalId;
+          }
         }
       }
 
