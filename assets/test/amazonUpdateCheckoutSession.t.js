@@ -69,10 +69,12 @@ function contextFor(body, apiContext) {
 }
 
 /**
- * A realistic storefront body. The route strips checkoutSessionId/orderId/
- * paymentId from the payload it forwards, so a body carrying only those would
- * forward an empty payload and be rejected with a 400 before the correlation
- * logic is ever reached.
+ * A realistic storefront body. The route whitelists only the fields Amazon's
+ * UpdateCheckoutSession API accepts, so a body carrying just
+ * checkoutSessionId/orderId/paymentId (or a non-Amazon field like
+ * webCheckoutDetails.checkoutMode) forwards an empty payload and is rejected
+ * with a 400 before the correlation logic is ever reached. Tests that need the
+ * update to go through add paymentDetails, as the real theme does.
  */
 function storefrontBody(extra) {
   return Object.assign({ checkoutSessionId: 'cs-1', webCheckoutDetails: { checkoutMode: 'ProcessOrder' } }, extra || {});
@@ -111,7 +113,13 @@ describe('amazonUpdateCheckoutSession — order correlation', function () {
 
   it('writes no customInformation at all when the body has no orderId', function () {
     var loaded = loadRoute();
-    var context = contextFor(storefrontBody(), { tenantId: '100046', siteId: '100072' });
+    // paymentDetails matches what the theme actually sends and keeps the
+    // whitelisted payload non-empty (a body of only checkoutSessionId +
+    // checkoutMode is a 400 "payload is required" — see storefrontBody).
+    var context = contextFor(
+      storefrontBody({ paymentDetails: { canChargeAmount: { amount: '10.00', currencyCode: 'USD' } } }),
+      { tenantId: '100046', siteId: '100072' }
+    );
 
     return invoke(loaded.route, context).then(function () {
       assert.equal(loaded.updates.length, 1, 'the session update itself still happens');
@@ -125,9 +133,19 @@ describe('amazonUpdateCheckoutSession — order correlation', function () {
 
   it('writes no customInformation when apiContext has no siteId', function () {
     var loaded = loadRoute();
-    var context = contextFor(storefrontBody({ orderId: 'order-1' }), { tenantId: '100046' });
+    // paymentDetails matches what the theme actually sends and keeps the
+    // whitelisted payload non-empty (a body of only checkoutSessionId +
+    // checkoutMode is a 400 "payload is required" — see storefrontBody).
+    var context = contextFor(
+      storefrontBody({
+        orderId: 'order-1',
+        paymentDetails: { canChargeAmount: { amount: '10.00', currencyCode: 'USD' } }
+      }),
+      { tenantId: '100046' }
+    );
 
     return invoke(loaded.route, context).then(function () {
+      assert.equal(loaded.updates.length, 1, 'the session update itself still happens');
       var metadata = loaded.updates[0].payload.merchantMetadata;
       assert.ok(
         !metadata || metadata.customInformation === undefined,
