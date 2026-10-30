@@ -24,7 +24,8 @@ module.exports = function (grunt) {
                 esversion: 9,
                 asi: true,
                 '-W033': true,
-                '-W018': true
+                '-W018': true,
+                '-W014': true
             }
         },
         webpack: {
